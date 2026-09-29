@@ -6,8 +6,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
@@ -43,13 +41,8 @@ def fp(value: str) -> str:
 
 
 @pytest.fixture
-def session(tmp_path):
-    url = f"sqlite:///{tmp_path / 'repo.db'}"
-    cfg = Config(str(REPO_ROOT / "migrations" / "alembic.ini"))
-    cfg.set_main_option("sqlalchemy.url", url)
-    cfg.attributes["configure_logger"] = False
-    command.upgrade(cfg, "head")
-    engine = make_engine(url)
+def session(migrated_url):
+    engine = make_engine(migrated_url)
     with make_session_factory(engine)() as s:
         yield s
     engine.dispose()
@@ -62,7 +55,10 @@ def repo(session):
 
 @pytest.fixture
 def vtp(repo):
-    return repo.create_provider("VIETTEL_POST", "Viettel Post")
+    # Seeded by migration shp_0002.
+    provider = repo.get_provider_by_code("VIETTEL_POST")
+    assert provider is not None
+    return provider
 
 
 @pytest.fixture
@@ -468,4 +464,6 @@ def test_deleting_webhook_keeps_event_and_nulls_reference(repo, session, vtp):
 
 
 def test_foreign_keys_enforced_on_sqlite(session):
+    if session.get_bind().dialect.name != "sqlite":
+        pytest.skip("SQLite PRAGMA check; PostgreSQL always enforces foreign keys")
     assert session.execute(text("PRAGMA foreign_keys")).scalar() == 1

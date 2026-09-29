@@ -14,6 +14,7 @@ development only and do not provide idempotency across workers or deploys.
 import threading
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, Protocol
 
 from app.domain.models.shipment import ShipmentStatus
@@ -47,6 +48,40 @@ class IdempotencyStore(Protocol):
 
 class WebhookEventStore(Protocol):
     def append(self, event: StoredWebhookEvent) -> None: ...
+
+
+class IngestResult(StrEnum):
+    NEW = "NEW"
+    DUPLICATE = "DUPLICATE"
+    RETRIED = "RETRIED"  # an earlier delivery of the same event failed; processed again
+
+
+class WebhookSink(Protocol):
+    """Atomically claims and stores one verified webhook event.
+
+    Returns DUPLICATE when the event was already stored successfully. Raises on failure,
+    leaving the event claimable again so the provider's retry is processed.
+    """
+
+    def ingest(self, event: StoredWebhookEvent) -> IngestResult: ...
+
+
+class InMemoryWebhookSink:
+    """Process-local sink for tests/local dev, built from the two in-memory fakes."""
+
+    def __init__(self, idempotency: IdempotencyStore, events: WebhookEventStore) -> None:
+        self.idempotency = idempotency
+        self.events = events
+
+    def ingest(self, event: StoredWebhookEvent) -> IngestResult:
+        if not self.idempotency.claim(event.idempotency_key):
+            return IngestResult.DUPLICATE
+        try:
+            self.events.append(event)
+        except Exception:
+            self.idempotency.release(event.idempotency_key)
+            raise
+        return IngestResult.NEW
 
 
 class InMemoryIdempotencyStore:

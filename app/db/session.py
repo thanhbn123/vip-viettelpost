@@ -24,7 +24,9 @@ def _configure_sqlite(engine: Engine) -> None:
     """Enforce foreign keys and make SAVEPOINT work under pysqlite.
 
     pysqlite's own transaction handling breaks SAVEPOINT; per the SQLAlchemy
-    docs we disable it and emit BEGIN ourselves.
+    docs we disable it and emit BEGIN ourselves. BEGIN IMMEDIATE takes the write
+    lock up front, so two concurrent writers queue (busy timeout) instead of
+    deadlocking on a read-then-write upgrade (e.g. two deliveries of one webhook).
     """
 
     @event.listens_for(engine, "connect")
@@ -36,4 +38,4 @@ def _configure_sqlite(engine: Engine) -> None:
 
     @event.listens_for(engine, "begin")
     def _on_begin(conn):
-        conn.exec_driver_sql("BEGIN")
+        conn.exec_driver_sql("BEGIN IMMEDIATE")

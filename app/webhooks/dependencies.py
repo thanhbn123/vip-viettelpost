@@ -1,22 +1,21 @@
-"""Wiring for the webhook route.
-
-The stores wired here are the in-memory fakes from ``app.webhooks.stores``: this branch
-has no database. Before any staging/production use they must be replaced by durable
-implementations (see docs/SECURITY.md, "Webhook"), otherwise idempotency does not
-survive a restart or span several workers.
-"""
+"""Wiring for the webhook route: durable SQL sink on the configured database."""
 
 from functools import lru_cache
 
 from app.core.config import settings
+from app.core.database import get_session_factory
+from app.providers.viettel_post.events import resolve_timezone
 from app.webhooks.processor import WebhookProcessor
-from app.webhooks.stores import InMemoryIdempotencyStore, InMemoryWebhookEventStore
+from app.webhooks.sql_sink import SqlWebhookSink
 
 
 @lru_cache(maxsize=1)
 def get_vtp_webhook_processor() -> WebhookProcessor:
     return WebhookProcessor(
         shared_secret=settings.webhook_shared_secret,
-        idempotency_store=InMemoryIdempotencyStore(),
-        event_store=InMemoryWebhookEventStore(),
+        sink=SqlWebhookSink(
+            get_session_factory(),
+            event_timezone=resolve_timezone(settings.vtp_webhook_timezone),
+        ),
+        max_body_bytes=settings.webhook_max_body_bytes,
     )

@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from app.webhooks.dependencies import get_vtp_webhook_processor
@@ -25,5 +26,6 @@ async def viettel_post_webhook(
             detail="body exceeds limit",
         )
     else:
-        outcome = processor.process(await request.body())
+        # The processor does blocking database I/O: keep it off the event loop.
+        outcome = await run_in_threadpool(processor.process, await request.body())
     return JSONResponse(status_code=outcome.http_status, content=outcome.response_body())

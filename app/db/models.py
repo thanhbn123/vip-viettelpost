@@ -21,6 +21,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
     text,
     true,
@@ -235,6 +236,8 @@ class ShippingWebhookEvent(Base):
             _in("processing_status", WEBHOOK_PROCESSING_STATUSES), name="processing_status_valid"
         ),
         CheckConstraint("attempt_count >= 0", name="attempt_count_non_negative"),
+        CheckConstraint(_in("canonical_status", SHIPMENT_STATUSES), name="canonical_status_valid"),
+        Index(None, "shipment_id"),
     )
 
     id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
@@ -259,6 +262,20 @@ class ShippingWebhookEvent(Base):
     )
     error_code: Mapped[str | None] = mapped_column(String(64))
     error_message: Mapped[str | None] = mapped_column(Text)
+    # shp_0002: normalized result of processing, for review queues and replay.
+    provider_status: Mapped[str | None] = mapped_column(String(64))
+    provider_status_name: Mapped[str | None] = mapped_column(String(128))
+    canonical_status: Mapped[str | None] = mapped_column(String(32))
+    requires_review: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    fingerprint_basis: Mapped[str | None] = mapped_column(String(64))
+    occurred_at_raw: Mapped[str | None] = mapped_column(String(64))
+    occurred_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    shipment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("shipments.id", ondelete="SET NULL")
+    )
+    processing_started_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
 class ShipmentEvent(Base):
@@ -274,17 +291,25 @@ class ShipmentEvent(Base):
         UniqueConstraint("provider_id", "provider_event_id"),
         Index(None, "shipment_id", "occurred_at"),
         CheckConstraint(_in("canonical_status", SHIPMENT_STATUSES), name="canonical_status_valid"),
+        CheckConstraint("canonical_status IS NOT NULL OR requires_review", name="status_or_review"),
     )
 
     id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     shipment_id: Mapped[int] = mapped_column(BigIntPK, nullable=False)
     provider_id: Mapped[int] = mapped_column(BigIntPK, nullable=False)
-    canonical_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    # NULL = provider status unknown or without unambiguous canonical (requires_review).
+    canonical_status: Mapped[str | None] = mapped_column(String(32))
+    requires_review: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    provider_status_name: Mapped[str | None] = mapped_column(String(128))
     provider_status: Mapped[str | None] = mapped_column(String(64))
     provider_event_id: Mapped[str | None] = mapped_column(String(128))
     description: Mapped[str | None] = mapped_column(String(500))
     location: Mapped[str | None] = mapped_column(String(255))
-    occurred_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    # NULL when the provider time has no timezone and none is configured (raw kept).
+    occurred_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    occurred_at_raw: Mapped[str | None] = mapped_column(String(64))
     received_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), nullable=False, default=utcnow, server_default=func.now()
     )

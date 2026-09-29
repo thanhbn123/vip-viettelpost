@@ -29,7 +29,14 @@ from typing import Any
 from app.domain.models.shipment import ShipmentStatus
 from app.providers.viettel_post.status_mapper import StatusMappingResult, map_status
 from app.webhooks.fingerprint import EventFingerprint, build_fingerprint, idempotency_key
-from app.webhooks.stores import IdempotencyStore, StoredWebhookEvent, WebhookEventStore
+from app.webhooks.stores import (
+    IdempotencyStore,
+    IngestResult,
+    InMemoryWebhookSink,
+    StoredWebhookEvent,
+    WebhookEventStore,
+    WebhookSink,
+)
 from app.webhooks.viettel_post_payload import (
     RejectionKind,
     VtpWebhookEvent,
@@ -93,14 +100,18 @@ class WebhookProcessor:
         self,
         *,
         shared_secret: str | None,
-        idempotency_store: IdempotencyStore,
-        event_store: WebhookEventStore,
+        sink: WebhookSink | None = None,
+        idempotency_store: IdempotencyStore | None = None,
+        event_store: WebhookEventStore | None = None,
         max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
         clock: Callable[[], datetime] = _utcnow,
     ) -> None:
+        if sink is None:
+            if idempotency_store is None or event_store is None:
+                raise ValueError("pass a sink, or both idempotency_store and event_store")
+            sink = InMemoryWebhookSink(idempotency_store, event_store)
         self._secret = shared_secret or None
-        self._idempotency = idempotency_store
-        self._events = event_store
+        self._sink = sink
         self._max_body_bytes = max_body_bytes
         self._clock = clock
 
@@ -141,20 +152,19 @@ class WebhookProcessor:
         mapping = map_status(parsed.provider_status)
         event = self._normalized(parsed, mapping, fingerprint, key)
 
-        if not self._idempotency.claim(key):
+        try:
+            result = self._sink.ingest(self._stored(parsed, mapping, fingerprint, key))
+        except Exception:
+            logger.exception("vtp webhook storage failed; the provider retry will reprocess it")
+            raise
+
+        if result is IngestResult.DUPLICATE:
             logger.info(
                 "vtp webhook duplicate: status=%s fp=%s",
                 mapping.provider_status,
                 fingerprint.value[:16],
             )
             return WebhookOutcome(kind=WebhookResultKind.DUPLICATE, http_status=200, event=event)
-
-        try:
-            self._events.append(self._stored(parsed, mapping, fingerprint, key))
-        except Exception:
-            self._idempotency.release(key)
-            logger.exception("vtp webhook storage failed; claim released for retry")
-            raise
 
         if mapping.requires_review:
             logger.warning(

@@ -16,7 +16,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -97,9 +97,17 @@ class NewShipment:
 
 @dataclass(frozen=True)
 class NewShipmentEvent:
-    canonical_status: str
-    occurred_at: datetime
+    """``canonical_status`` is None for an unknown/unmapped provider status; such an
+    event must have ``requires_review=True``. ``occurred_at`` is None when the provider
+    time has no known timezone (``occurred_at_raw`` keeps the text)."""
+
+    canonical_status: str | None
+    occurred_at: datetime | None
     provider_status: str | None = None
+    provider_status_name: str | None = None
+    requires_review: bool = False
+    occurred_at_raw: str | None = None
+    received_at: datetime | None = None
     provider_event_id: str | None = None
     description: str | None = None
     location: str | None = None
@@ -223,7 +231,10 @@ class ShippingRepository:
         ``created=False``. Updating ``shipments.status`` is the service
         layer's decision (ordering / transition rules), not done here.
         """
-        if data.canonical_status not in SHIPMENT_STATUSES:
+        if data.canonical_status is None:
+            if not data.requires_review:
+                raise ValueError("an event without canonical status must require review")
+        elif data.canonical_status not in SHIPMENT_STATUSES:
             raise ValueError(f"unknown canonical status: {data.canonical_status}")
         if data.provider_event_id is not None:
             existing = self.session.scalar(
@@ -239,11 +250,15 @@ class ShippingRepository:
             shipment_id=shipment.id,
             provider_id=shipment.provider_id,
             canonical_status=data.canonical_status,
+            requires_review=data.requires_review,
             provider_status=data.provider_status,
+            provider_status_name=data.provider_status_name,
             provider_event_id=data.provider_event_id,
             description=data.description,
             location=data.location,
             occurred_at=data.occurred_at,
+            occurred_at_raw=data.occurred_at_raw,
+            **({"received_at": data.received_at} if data.received_at is not None else {}),
             webhook_event_id=data.webhook_event_id,
             metadata_json=redact(dict(data.metadata)) if data.metadata is not None else None,
         )
@@ -269,7 +284,11 @@ class ShippingRepository:
             self.session.scalars(
                 select(ShipmentEvent)
                 .where(ShipmentEvent.shipment_id == shipment_id)
-                .order_by(ShipmentEvent.occurred_at, ShipmentEvent.id)
+                # Events without a zoned provider time sort by gateway receive time.
+                .order_by(
+                    func.coalesce(ShipmentEvent.occurred_at, ShipmentEvent.received_at),
+                    ShipmentEvent.id,
+                )
             )
         )
 
@@ -299,6 +318,7 @@ class ShippingRepository:
         tracking_number: str | None = None,
         order_id: str | None = None,
         headers: Mapping[str, str] | None = None,
+        normalized: Mapping[str, Any] | None = None,
     ) -> tuple[ShippingWebhookEvent, bool]:
         """Store a raw webhook once. Returns ``(row, created)``.
 
@@ -318,6 +338,7 @@ class ShippingRepository:
             order_id=order_id,
             payload_json=redact(payload),
             headers_json=safe_headers(headers),
+            **_webhook_normalized_columns(normalized),
         )
         try:
             with self.session.begin_nested():
@@ -340,8 +361,11 @@ class ShippingRepository:
         processed_at: datetime | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
+        shipment_id: int | None = None,
     ) -> ShippingWebhookEvent:
         webhook.processing_status = processing_status
+        if shipment_id is not None:
+            webhook.shipment_id = shipment_id
         webhook.processed_at = processed_at
         webhook.error_code = error_code
         webhook.error_message = error_message
@@ -377,6 +401,31 @@ class ShippingRepository:
         self.session.add(log)
         self.session.flush()
         return log
+
+
+WEBHOOK_NORMALIZED_COLUMNS = frozenset(
+    {
+        "provider_status",
+        "provider_status_name",
+        "canonical_status",
+        "requires_review",
+        "fingerprint_basis",
+        "occurred_at_raw",
+        "occurred_at",
+        "processing_status",
+        "processing_started_at",
+        "attempt_count",
+    }
+)
+
+
+def _webhook_normalized_columns(normalized: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not normalized:
+        return {}
+    unknown = set(normalized) - WEBHOOK_NORMALIZED_COLUMNS
+    if unknown:
+        raise ValueError(f"unsupported webhook columns: {sorted(unknown)}")
+    return dict(normalized)
 
 
 def _address_columns(prefix: str, address: AddressRecord | None) -> dict[str, str | None]:
