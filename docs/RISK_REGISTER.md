@@ -16,4 +16,6 @@ Mức: CRITICAL / HIGH / MEDIUM / LOW. Chủ = ai phải hành động.
 | R-010 | Không có API tra cứu vận đơn VTP chính thức | MEDIUM | Trạng thái chỉ đến qua webhook; lỡ webhook thì không tự đối soát | D-019; theo dõi webhook `FAILED`/review | Hỏi VTP |
 | R-011 | Quy tắc kế toán COD (ai sở hữu tiền, khi nào coi là tất toán, ai được điều chỉnh phí) chưa chốt | MEDIUM | G10 chỉ ghi số và suy trạng thái máy móc | Không mã hoá luật nghiệp vụ; ghi rõ trong `docs/FINANCE.md` | Chủ dự án quyết |
 | R-012 | Quyền ghi đè trạng thái vận đơn bằng tay chưa chốt | LOW | Người vận hành chỉ ghi chú được, chưa sửa được trạng thái | Không làm endpoint ghi đè | Chủ dự án quyết |
-| R-013 | Chưa có xác thực bên gọi API | HIGH (chặn staging mở ra ngoài) | Ai gọi được API là tạo/huỷ được vận đơn | G12 | G12 |
+| R-013 | Chưa có xác thực bên gọi API | ~~HIGH~~ → đóng khi G12 merge | Ai gọi được API là tạo/huỷ được vận đơn | G12: `X-API-Key` fail closed (D-033) | — |
+| R-014 | Chưa có chính sách lưu giữ / xoá dữ liệu cá nhân (payload webhook, địa chỉ) | MEDIUM | Dữ liệu cá nhân tích luỹ không thời hạn | Cần quyết định nghiệp vụ/pháp lý; kỹ thuật sẵn sàng làm job xoá theo hạn | Chủ dự án quyết |
+| R-015 | Chưa có rate limit, xoay vòng key tự động, phân quyền theo key | MEDIUM | Một key lộ = toàn quyền API tới khi gỡ khỏi `API_KEYS` | Gỡ key = xoá dòng khỏi secret + khởi động lại; đặt API sau proxy nội bộ ở staging | Việc sau |

@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_name: str = "vip-shipping-gateway"
     database_url: str = "sqlite:///./vip_shipping.db"
+    # PostgreSQL connect timeout: a silent DB host must not hold readiness or requests for
+    # the OS default (~75 s measured, verifier PR #16).
+    db_connect_timeout_seconds: int = 5
 
     # Default is the documented DEVELOPMENT environment. Production must be chosen
     # explicitly (VTP_BASE_URL) so that no default configuration can reach it.
@@ -23,6 +26,10 @@ class Settings(BaseSettings):
     # Set only after Viettel Post confirms it, e.g. "Asia/Ho_Chi_Minh".
     vtp_webhook_timezone: str | None = None
     webhook_max_body_bytes: int = 64 * 1024
+
+    # G12 security. Only SHA-256 digests of keys: "<id>:<sha256 hex>,..." (D-033).
+    api_keys: str | None = None
+    api_max_body_bytes: int = 256 * 1024
 
     # G11 observability / resilience
     log_level: str = "INFO"

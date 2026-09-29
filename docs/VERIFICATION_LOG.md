@@ -76,3 +76,34 @@ Test F1 và F3 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
 
 Test #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
 - Lần 2, HEAD `c46def5`: 363 passed; 490 passed / 1 skipped. 30 luồng thu/nộp COD trộn: trạng thái luôn khớp số, nộp ≤ thu. **PASS** → merge PR #14 (`7acc3ba`). Còn LOW: số 0 nhập nhầm rồi nộp 0 thành `REMITTED` cuối cùng (sửa qua đối soát; có cho nộp 0 hay không là R-011).
+
+## PR #16 — G11 Retry / resilience / observability
+
+- Lần 1, HEAD `c13b22b`: 378 passed (SQLite); 507 passed / 1 skipped (PG riêng). **PASS** → merge PR #16 (`bb7aa4d`). Sửa ở PR G12:
+
+| # | Mức | Phát hiện | Xử lý (PR G12) |
+|---|---|---|---|
+| 1 | MEDIUM | Readiness treo ~75 s khi máy CSDL im lặng (không `connect_timeout`) | `connect_timeout` 5 s cho PostgreSQL (`DB_CONNECT_TIMEOUT_SECONDS`) |
+| 2 | MEDIUM | Log JSON bỏ mất traceback | Trường `exc` (đã che) |
+| 3 | LOW/MED | Lớp che bí mật không che traceback | Che `exc_text` và `stack_info` |
+| 4 | LOW | `__getattr__` đệ quy khi copy/unpickle | Chặn tên `inner` |
+| 5 | LOW | Log lỗi 500 có `request_id` = `-` | Handler đặt lại contextvar khi ghi log |
+| 6 | LOW | Độ trễ xấu nhất ~60,6 s khi thử lại | Ghi trong `OBSERVABILITY.md` |
+| 7 | LOW | Logger uvicorn không qua lớp che | Ghi giới hạn trong `OBSERVABILITY.md` |
+| 8 | LOW | Lỗi cây migration → 500 thay vì 503 | Bắt trong readiness; head được cache |
+
+## PR #18 — G12 Security hardening
+
+- Lần 1, HEAD `2ed2c98`: 398 passed (SQLite); 529 passed / 1 skipped (PG riêng); ruff sạch; pip-audit 0. Thử vượt xác thực (gạch chéo cuối, `//`, mã hoá URL, method override, HEAD/OPTIONS, header trùng/hoa/khoảng trắng): không vượt được. **PASS**, kèm:
+
+| # | Mức | Phát hiện | Xử lý (trước khi merge) |
+|---|---|---|---|
+| 1 | MEDIUM | Thân `chunked` không có Content-Length vượt giới hạn, kể cả khi **chưa xác thực** (50 MB đọc hết, RSS 106→242 MB) | Middleware ASGI ngoài cùng đếm byte thật, trước định tuyến/xác thực; test hỏng trên mã cũ |
+| 2 | MEDIUM | `/docs`, `/redoc`, `/openapi.json` công khai, trái `SECURITY.md` | Tắt UI; `/openapi.json` sau API key |
+| 3 | LOW | `.dockerignore` chỉ khớp ở gốc | Mẫu `**/`; CI cài mồi cả ở `app/.env`, `migrations/decoy.db` |
+| 4 | LOW | Kiểm tra CI của ảnh dễ vỡ (`!` + errexit) | So sánh tường minh `test -z`, `set -euo pipefail` |
+| 5 | LOW | `API_KEYS` sai không chặn khởi động | Kiểm lúc nạp app → không khởi động |
+| 6 | LOW | "`hide_parameters` mọi engine" nói quá | Thêm cho Alembic CLI; sửa câu chữ phạm vi |
+| 7 | LOW | Tripwire bỏ sót nhiều loại, cho qua cả dòng có chữ "test" | Xét trên chính chuỗi; thêm URL có mật khẩu và các biến bí mật của dự án; test tự kiểm |
+| 8 | LOW | Phản hồi 500 thiếu header bảo mật | Thêm vào handler 500 |
+| 9 | LOW/INFO | Docstring che API key sai; file DB tạm của test để lại; ảnh gốc chưa ghim digest; cảnh báo `httpx2` của Starlette | Sửa docstring; dọn thư mục tạm cuối phiên test; ghi chưa làm |

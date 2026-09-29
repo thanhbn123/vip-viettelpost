@@ -118,7 +118,8 @@ class ViettelPostAuth:
             return self._cached
         if not self._username or not self._password:
             raise ViettelPostAuthError(
-                "Viettel Post credentials are not configured (VTP_TOKEN or VTP_USERNAME/VTP_PASSWORD)"
+                "Viettel Post credentials are not configured "
+                "(VTP_TOKEN or VTP_USERNAME/VTP_PASSWORD)"
             )
         short = await self.login(self._username, self._password)
         self._cached = await self.owner_connect(short.token, self._username, self._password)

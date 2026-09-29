@@ -1,13 +1,15 @@
 """Liveness, readiness and metrics (G11). Readiness never calls the carrier."""
 
+from functools import lru_cache
 from pathlib import Path
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from app.api.auth import require_api_key
 from app.core.config import settings
 from app.core.database import get_engine
 from app.core.metrics import metrics
@@ -16,6 +18,7 @@ router = APIRouter()
 MIGRATIONS = Path(__file__).resolve().parents[2] / "migrations"
 
 
+@lru_cache(maxsize=1)
 def expected_head() -> str:
     cfg = Config(str(MIGRATIONS / "alembic.ini"))
     cfg.set_main_option("script_location", str(MIGRATIONS))
@@ -24,7 +27,11 @@ def expected_head() -> str:
 
 def readiness_checks(engine=None) -> dict[str, dict]:
     checks: dict[str, dict] = {}
-    head = expected_head()
+    try:
+        head = expected_head()
+    except Exception as exc:  # broken/multi-head migration tree: not ready, not a 500
+        head = None
+        checks["migration_scripts"] = {"ok": False, "error": type(exc).__name__}
     try:
         with (engine or get_engine()).connect() as conn:
             conn.execute(text("SELECT 1"))
@@ -62,6 +69,6 @@ def ready():
     )
 
 
-@router.get("/metrics")
+@router.get("/metrics", dependencies=[Depends(require_api_key)])
 def metrics_snapshot():
     return metrics.snapshot()

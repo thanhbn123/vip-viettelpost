@@ -21,8 +21,9 @@ def get_application() -> ShippingApplication:
 
 
 def get_actor(request: Request) -> Actor:
-    # No caller authentication yet (G12): mutations are attributed to the API itself.
-    return Actor(ActorType.SYSTEM, "api")
+    """The authenticated API key id (set by ``require_api_key``) is the audit actor."""
+    key_id = getattr(request.state, "api_key_id", None)
+    return Actor(ActorType.SYSTEM, f"apikey:{key_id}" if key_id else "api")
 
 
 @lru_cache(maxsize=1)

@@ -6,6 +6,8 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.api.auth import AuthNotConfiguredError, UnauthenticatedError
+from app.core.logging import request_id_var
 from app.providers.base.errors import (
     ProviderAuthError,
     ProviderRejectedError,
@@ -28,8 +30,17 @@ from app.services.shipping_app import (
 
 logger = logging.getLogger("app.api.errors")
 
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "no-store",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
+
 # (status, code, expose provider/app message?)
 _MAPPING: list[tuple[type[BaseException], int, str, bool]] = [
+    (UnauthenticatedError, 401, "unauthorized", False),
+    (AuthNotConfiguredError, 503, "auth_not_configured", False),
     (ShipmentNotFoundError, 404, "shipment_not_found", True),
     (ReconciliationNotFoundError, 404, "reconciliation_not_found", True),
     (FinanceError, 422, "invalid_finance_operation", True),
@@ -51,6 +62,8 @@ _MAPPING: list[tuple[type[BaseException], int, str, bool]] = [
 ]
 
 _GENERIC = {
+    "unauthorized": "a valid X-API-Key header is required",
+    "auth_not_configured": "API authentication is not configured on this server",
     "provider_auth_failed": "the gateway could not authenticate with the provider",
     "provider_timeout": "the provider did not answer in time; the outcome is unknown",
     "provider_unavailable": "the provider is unavailable; retry later",
@@ -78,13 +91,19 @@ def _handler(status: int, code: str, expose: bool):
 
 
 async def _unexpected(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("request %s failed with an unexpected error", request_id_of(request))
     rid = request_id_of(request)
+    # This handler runs after the request-id middleware has reset its contextvar.
+    token = request_id_var.set(rid)
+    try:
+        logger.exception("request %s failed with an unexpected error", rid)
+    finally:
+        request_id_var.reset(token)
     return JSONResponse(
         status_code=500,
         content={"error": "internal_error", "detail": "unexpected error", "request_id": rid},
         # This response bypasses the request-id middleware; set the header here.
-        headers={"X-Request-ID": rid} if rid else None,
+        # Rendered outside the header middleware: add the security headers here too.
+        headers={**SECURITY_HEADERS, **({"X-Request-ID": rid} if rid else {})},
     )
 
 
