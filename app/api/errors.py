@@ -76,13 +76,12 @@ def _handler(status: int, code: str, expose: bool):
 
 async def _unexpected(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("request %s failed with an unexpected error", request_id_of(request))
+    rid = request_id_of(request)
     return JSONResponse(
         status_code=500,
-        content={
-            "error": "internal_error",
-            "detail": "unexpected error",
-            "request_id": request_id_of(request),
-        },
+        content={"error": "internal_error", "detail": "unexpected error", "request_id": rid},
+        # This response bypasses the request-id middleware; set the header here.
+        headers={"X-Request-ID": rid} if rid else None,
     )
 
 

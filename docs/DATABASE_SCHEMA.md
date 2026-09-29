@@ -178,6 +178,9 @@ Khác biệt đã biết:
 
 ## 11. Rollback / downgrade
 
+> Downgrade về `base` (xoá toàn bộ bảng) chỉ chạy được trên CSDL **rỗng**: `shp_0002` bỏ dòng gieo `VIETTEL_POST`, bị FK RESTRICT chặn khi còn vận đơn (verifier PR #8). Rollback thật chỉ lùi từng revision (vd. `shp_0003` → `shp_0002`), xem `docs/STAGING.md`.
+
+
 - `downgrade()` xoá cả 10 bảng theo thứ tự ngược FK. **Mất dữ liệu.** Chỉ dùng cho dev/test, hoặc lần triển khai đầu vừa hỏng mà chưa có dữ liệu thật.
 - Khi đã có dữ liệu thật: rollback bằng **migration tiến** (thêm revision mới), không downgrade.
 - Đã chạy downgrade trên SQLite (pytest và CLI) và trên PostgreSQL 16 (SQL offline).

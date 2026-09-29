@@ -22,3 +22,29 @@ Mỗi PR được một tác tử verifier **không viết mã đó** kiểm tr�
 | 7 | LOW | Lỗi bất ngờ trả 500 thô | Handler chung: JSON `internal_error` + `request_id`, không lộ chi tiết |
 
 Test hồi quy #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
+
+- Lần 2, HEAD `1bf3302`: 325 passed; 414 passed / 1 skipped (PG riêng). **PASS** → merge PR #8 (`051e535`). Còn lại, sửa ở PR G07:
+
+| # | Mức | Phát hiện | Xử lý (PR G07) |
+|---|---|---|---|
+| 1 | MEDIUM | Hãng đã nhận huỷ nhưng ghi CSDL hỏng → 500 chung, không audit, không log rõ | `PersistenceAfterProviderError` + log ERROR kèm mã vận đơn + audit `PROVIDER_CANCEL_NOT_RECORDED`; giữ khoá (không gửi huỷ lần hai ngay); webhook huỷ của VTP vẫn đưa vận đơn về `CANCELLED` |
+| 2 | LOW | `asyncio.CancelledError` giữa lúc gọi hãng không nhả khoá | Bắt `BaseException` để nhả khoá rồi ném lại |
+| 3 | LOW | Giá trị khoá luôn là `"CANCEL"` | Token riêng mỗi yêu cầu `CANCEL:<16 hex>`; ghi cuối so đúng token |
+| 4 | LOW | Phản hồi 500 thiếu header `X-Request-ID` | Handler 500 tự đặt header |
+| 5 | (ghi chú) | Downgrade về `base` trên PG hỏng FK khi đã có vận đơn | Đúng thiết kế: downgrade về base chỉ cho CSDL rỗng (dev/test); ghi vào rollback trong `DATABASE_SCHEMA.md` |
+
+## PR #10 — G07 Durable webhook processing
+
+- Lần 1, HEAD `fba138b`: 340 passed (SQLite); 444 passed / 1 skipped (PG riêng). Race thử thêm của verifier (5 sự kiện khác nhau đồng thời × 8 vận đơn; tạo + 2 job replay + 2 webhook đồng thời, mỗi thứ 3 lần, cả hai CSDL): sạch. **PASS**, kèm:
+
+| # | Mức | Phát hiện | Xử lý |
+|---|---|---|---|
+| F1 | MEDIUM | Khoá so thứ tự hai loại (có múi giờ / chữ VTP) không bao giờ so với nhau → bật `VTP_WEBHOOK_TIMEZONE` sau đó thì sự kiện cũ kéo lùi trạng thái | Hãng có hàm khoá riêng (VTP) luôn so bằng khoá đó |
+| F2 | MEDIUM | Khe hở D-027 chỉ job replay cứu được; job chưa có lịch | Thêm thước đo `unmatched_with_shipment` (phải về 0 sau mỗi lần chạy); lịch chạy là việc G14 |
+| F3 | MEDIUM | Job replay bỏ qua dòng `FAILED` → mất sự kiện khi CSDL hỏng lâu hơn 5 lần thử của VTP | Job và `replay_unmatched` nhận cả `FAILED` |
+| F4 | LOW | Huỷ: timeout/5xx/huỷ yêu cầu vẫn nhả khoá → gửi huỷ lần hai ngay | Chỉ nhả khi hãng từ chối; kết quả không rõ giữ khoá tới hết hạn, audit `PROVIDER_CANCEL_OUTCOME_UNKNOWN` |
+| F5 | LOW | Webhook huỷ của VTP tới giữa lúc gọi huỷ → báo xung đột giả | Trạng thái đã `CANCELLED` = đồng thuận: 200 |
+| F6 | LOW | `processed_at` ghi giờ nhận gốc khi replay | Ghi giờ xử lý thật |
+| F7 | LOW | Đọc toàn bộ sự kiện cũ mỗi lần (O(n)) | Chấp nhận ở quy mô hiện tại |
+
+Test F1 và F3 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
