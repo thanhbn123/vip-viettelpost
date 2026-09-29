@@ -275,3 +275,53 @@ def test_userinfo_in_staging_url_is_refused(tmp_path):
         )
         == 2
     )
+
+
+def test_real_e2e_script_evidence_is_accepted_for_g08(deployed, tmp_path):
+    """End to end (verifier H1 on PR #28): the evidence file the E2E script really writes,
+    with VTP_E2E_SHA set exactly as staging.yml sets it, must give G08 PASS - not a
+    hand-written fixture."""
+    import httpx
+
+    from scripts import vtp_dev_e2e
+    from tests.unit.test_vtp_dev_e2e_script import ROUTES, SCENARIO
+    from tests.unit.vtp_fakes import Recorder
+
+    scenario = tmp_path / "scenario.json"
+    scenario.write_text(json.dumps(SCENARIO))
+    evidence = tmp_path / "vtp-evidence.json"
+    env = {
+        "VTP_BASE_URL": "https://partnerdev.viettelpost.vn",
+        "VTP_TOKEN": "eyJfake.e2e.x",
+        "VTP_E2E_SCENARIO": str(scenario),
+        "VTP_E2E_SHA": SHA,
+    }
+    code = vtp_dev_e2e.main(
+        ["--evidence", str(evidence)], env=env, transport=httpx.MockTransport(Recorder(ROUTES))
+    )
+    assert code == 0
+    real = json.loads(evidence.read_text())
+    assert real["sha"] == SHA
+    ev = acceptance.run(
+        deployed,
+        ENV,
+        kind="staging",
+        expected_sha=SHA,
+        logs=lambda: deployed.headers["X-Request-ID"],
+        vtp_evidence=real,
+    )
+    assert ev.g08 == "PASS"
+
+    env.pop("VTP_E2E_SHA")
+    vtp_dev_e2e.main(
+        ["--evidence", str(evidence)], env=env, transport=httpx.MockTransport(Recorder(ROUTES))
+    )
+    ev = acceptance.run(
+        deployed,
+        ENV,
+        kind="staging",
+        expected_sha=SHA,
+        logs=lambda: deployed.headers["X-Request-ID"],
+        vtp_evidence=json.loads(evidence.read_text()),
+    )
+    assert ev.g08 == "FAIL"  # evidence not bound to this SHA

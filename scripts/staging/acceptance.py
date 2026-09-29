@@ -23,6 +23,7 @@ import argparse
 import json
 import os
 import re
+import secrets as _random
 import subprocess
 import sys
 import time
@@ -114,7 +115,7 @@ def run(
     secrets = secret_values(env)
     # Every request of this run carries this id; the log excerpt must contain it to prove the
     # logs come from the instance that served this run (M1, verifier PR #28).
-    marker = f"accept-{expected_sha[:8]}-{int(time.time())}"
+    marker = f"accept-{expected_sha[:8]}-{int(time.time())}-{_random.token_hex(8)}"
     client.headers["X-Request-ID"] = marker
 
     def capture(response: httpx.Response) -> None:  # every response, smoke included (M2)

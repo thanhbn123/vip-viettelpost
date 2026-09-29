@@ -226,13 +226,15 @@ jobs:
           names = ["DATABASE_URL", "WEBHOOK_SHARED_SECRET", "API_KEYS", "VTP_TOKEN",
                    "VTP_USERNAME", "VTP_PASSWORD", "VTP_BASE_URL", "VTP_WEBHOOK_TIMEZONE",
                    "LOG_FORMAT", "APP_ENV"]
+          lines = []
+          for n in names:
+              v = os.environ.get(n, "")
+              if "\n" in v or "\r" in v:
+                  raise SystemExit(f"{n} contains a line break; refusing to write env file")
+              if v:
+                  lines.append(f"{n}={v}\n")
           with open(os.path.join(os.environ["RUNNER_TEMP"], "staging.env"), "w") as f:
-              for n in names:
-                  v = os.environ.get(n, "")
-                  if "\n" in v or "\r" in v:
-                      raise SystemExit(f"{n} contains a line break; refusing to write env file")
-                  if v:
-                      f.write(f"{n}={v}\n")
+              f.writelines(lines)
           PY
       - name: Migrate (fails closed)
         id: migrate
@@ -283,7 +285,7 @@ jobs:
       # Also after a partial `start` or a cancellation/timeout: the hook's rollback must be
       # safe to run when nothing changed (docs/STAGING_DEPLOYMENT.md, deploy contract).
       - name: Roll back to the previous release on failure
-        if: ${{ (failure() || cancelled()) && (steps.start.outcome == 'success' || steps.start.outcome == 'failure') }}
+        if: ${{ (failure() || cancelled()) && (steps.start.outcome == 'success' || steps.start.outcome == 'failure' || steps.start.outcome == 'cancelled') }}
         env:
           STAGING_DEPLOY_METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
           STAGING_SHA: ${{ env.SHA }}
