@@ -19,6 +19,8 @@ jobs:
           python-version: "3.11"
       - run: pip install ruff==0.6.9  # same pin as requirements-dev.txt
       - run: ruff check app tests migrations scripts
+      # Deploy scripts (CR-STG-VPS): shellcheck is preinstalled on ubuntu-latest.
+      - run: shellcheck --version && shellcheck -S warning scripts/staging/*.sh scripts/staging/methods/*.sh scripts/staging/vps/*.sh
 
   test:
     runs-on: ubuntu-latest

@@ -86,6 +86,12 @@ jobs:
       HAS_VTP_USERNAME: ${{ secrets.VTP_USERNAME != '' }}
       HAS_VTP_PASSWORD: ${{ secrets.VTP_PASSWORD != '' }}
       HAS_DATABASE_URL_PSQL: ${{ secrets.DATABASE_URL_PSQL != '' }}
+      # Method "vps" (CR-STG-VPS); checked only when STAGING_DEPLOY_METHOD=vps.
+      HAS_STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST != '' }}
+      HAS_STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER != '' }}
+      HAS_STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY != '' }}
+      HAS_STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS != '' }}
+      STAGING_APP_DIR: ${{ vars.STAGING_APP_DIR }}
       STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
       STAGING_DEPLOY_METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
       VTP_E2E_SCENARIO_JSON: ${{ vars.VTP_E2E_SCENARIO_JSON }}
@@ -209,6 +215,7 @@ jobs:
       - name: Runtime env file (mode 600, never printed)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_PSQL: ${{ secrets.DATABASE_URL_PSQL }}
           WEBHOOK_SHARED_SECRET: ${{ secrets.WEBHOOK_SHARED_SECRET }}
           API_KEYS: ${{ secrets.API_KEYS }}
           VTP_TOKEN: ${{ secrets.VTP_TOKEN }}
@@ -223,7 +230,7 @@ jobs:
           umask 077
           python - <<'PY'
           import os
-          names = ["DATABASE_URL", "WEBHOOK_SHARED_SECRET", "API_KEYS", "VTP_TOKEN",
+          names = ["DATABASE_URL", "DATABASE_URL_PSQL", "WEBHOOK_SHARED_SECRET", "API_KEYS", "VTP_TOKEN",
                    "VTP_USERNAME", "VTP_PASSWORD", "VTP_BASE_URL", "VTP_WEBHOOK_TIMEZONE",
                    "LOG_FORMAT", "APP_ENV"]
           lines = []
@@ -243,6 +250,18 @@ jobs:
           STAGING_IMAGE_ARCHIVE: image.tar.gz
           STAGING_ENV_FILE: ${{ runner.temp }}/staging.env
           STAGING_SHA: ${{ env.SHA }}
+          # Method "vps" inputs (unused by other methods); values are never printed.
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+          STAGING_SSH_PORT: ${{ vars.STAGING_SSH_PORT }}
+          STAGING_APP_DIR: ${{ vars.STAGING_APP_DIR }}
+          STAGING_APP_PORT: ${{ vars.STAGING_APP_PORT }}
+          STAGING_EXPECTED_HOSTNAME: ${{ vars.STAGING_EXPECTED_HOSTNAME }}
+          STAGING_HOST_DENYLIST: ${{ vars.STAGING_HOST_DENYLIST }}
+          STAGING_DOCKER_NETWORK: ${{ vars.STAGING_DOCKER_NETWORK }}
+          STAGING_PG_TOOLS_IMAGE: ${{ vars.STAGING_PG_TOOLS_IMAGE }}
         run: bash scripts/staging/deploy.sh migrate
       - name: Start exact image
         id: start
@@ -251,6 +270,18 @@ jobs:
           STAGING_IMAGE_ARCHIVE: image.tar.gz
           STAGING_ENV_FILE: ${{ runner.temp }}/staging.env
           STAGING_SHA: ${{ env.SHA }}
+          # Method "vps" inputs (unused by other methods); values are never printed.
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+          STAGING_SSH_PORT: ${{ vars.STAGING_SSH_PORT }}
+          STAGING_APP_DIR: ${{ vars.STAGING_APP_DIR }}
+          STAGING_APP_PORT: ${{ vars.STAGING_APP_PORT }}
+          STAGING_EXPECTED_HOSTNAME: ${{ vars.STAGING_EXPECTED_HOSTNAME }}
+          STAGING_HOST_DENYLIST: ${{ vars.STAGING_HOST_DENYLIST }}
+          STAGING_DOCKER_NETWORK: ${{ vars.STAGING_DOCKER_NETWORK }}
+          STAGING_PG_TOOLS_IMAGE: ${{ vars.STAGING_PG_TOOLS_IMAGE }}
         run: bash scripts/staging/deploy.sh start
       - name: Wait for readiness
         env:
@@ -267,13 +298,25 @@ jobs:
         env:
           ACCEPT_API_KEY: ${{ secrets.SMOKE_API_KEY }}
           ACCEPT_WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SHARED_SECRET }}
-          ACCEPT_SCAN_VARS: ACCEPT_API_KEY,ACCEPT_WEBHOOK_SECRET,SCAN_DATABASE_URL,SCAN_VTP_TOKEN,SCAN_VTP_PASSWORD
+          ACCEPT_SCAN_VARS: ACCEPT_API_KEY,ACCEPT_WEBHOOK_SECRET,SCAN_DATABASE_URL,SCAN_VTP_TOKEN,SCAN_VTP_PASSWORD,STAGING_SSH_PRIVATE_KEY
           SCAN_DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SCAN_VTP_TOKEN: ${{ secrets.VTP_TOKEN }}
           SCAN_VTP_PASSWORD: ${{ secrets.VTP_PASSWORD }}
           STAGING_DEPLOY_METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
           STAGING_SHA: ${{ env.SHA }}
           BASE_URL: ${{ vars.STAGING_BASE_URL }}
+          # Method "vps" inputs (unused by other methods); values are never printed.
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+          STAGING_SSH_PORT: ${{ vars.STAGING_SSH_PORT }}
+          STAGING_APP_DIR: ${{ vars.STAGING_APP_DIR }}
+          STAGING_APP_PORT: ${{ vars.STAGING_APP_PORT }}
+          STAGING_EXPECTED_HOSTNAME: ${{ vars.STAGING_EXPECTED_HOSTNAME }}
+          STAGING_HOST_DENYLIST: ${{ vars.STAGING_HOST_DENYLIST }}
+          STAGING_DOCKER_NETWORK: ${{ vars.STAGING_DOCKER_NETWORK }}
+          STAGING_PG_TOOLS_IMAGE: ${{ vars.STAGING_PG_TOOLS_IMAGE }}
         run: |
           set -euo pipefail
           vtp=()
@@ -289,6 +332,18 @@ jobs:
         env:
           STAGING_DEPLOY_METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
           STAGING_SHA: ${{ env.SHA }}
+          # Method "vps" inputs (unused by other methods); values are never printed.
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+          STAGING_SSH_PORT: ${{ vars.STAGING_SSH_PORT }}
+          STAGING_APP_DIR: ${{ vars.STAGING_APP_DIR }}
+          STAGING_APP_PORT: ${{ vars.STAGING_APP_PORT }}
+          STAGING_EXPECTED_HOSTNAME: ${{ vars.STAGING_EXPECTED_HOSTNAME }}
+          STAGING_HOST_DENYLIST: ${{ vars.STAGING_HOST_DENYLIST }}
+          STAGING_DOCKER_NETWORK: ${{ vars.STAGING_DOCKER_NETWORK }}
+          STAGING_PG_TOOLS_IMAGE: ${{ vars.STAGING_PG_TOOLS_IMAGE }}
         run: bash scripts/staging/deploy.sh rollback
       - name: Evidence
         if: always()

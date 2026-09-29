@@ -34,14 +34,24 @@ Tên **không** tồn tại trong code và không được thêm: `VTP_API_KEY`,
 | NAME | TYPE | REQUIRED | PURPOSE | SOURCE | ROTATION | EXPOSED TO APP? | SAFE TO LOG? | DEFAULT? |
 |---|---|---|---|---|---|---|---|---|
 | `STAGING_BASE_URL` | VAR | REQUIRED để deploy | URL HTTPS công khai của staging (smoke test, readiness, webhook) | Chủ dự án (DNS + proxy) | Khi đổi domain | Không | Có | không có → `STAGING_TARGET_MISSING` |
-| `STAGING_DEPLOY_METHOD` | VAR | REQUIRED để deploy | Cách triển khai lên target (vd. `ssh-docker`); **chưa cài cơ chế nào** — workflow dừng tới khi target được chọn | Chủ dự án chọn | — | Không | Có | không có → `STAGING_TARGET_MISSING` |
+| `STAGING_DEPLOY_METHOD` | VAR | REQUIRED để deploy | Cách triển khai lên target. Giá trị hợp lệ duy nhất hiện có: **`vps`** (CR-STG-VPS) | Chủ dự án | — | Không | Có | không có / không có hook → `STAGING_TARGET_MISSING` |
 | `SMOKE_API_KEY` | SECRET | REQUIRED để smoke | Key **thô** tương ứng một dòng trong `API_KEYS`, chỉ cho smoke test | Sinh cùng lúc với `API_KEYS` | Cùng `API_KEYS` | Không | **Không** | không có |
 | `VTP_E2E_SCENARIO_JSON` | VAR | REQUIRED cho G08 | Kịch bản E2E (địa chỉ **thử**, ID địa danh VTP, gói hàng, `order_payment`) theo mẫu `scripts/vtp_dev_e2e.scenario.example.json` | Chủ dự án | — | Không | Có (chỉ dữ liệu thử, không dùng thông tin khách thật) | không có |
 | `RUN_VTP_DEV_E2E` | VAR | OPTIONAL | `true` = khi kích hoạt bằng push `deploy/staging`, chạy thêm job E2E VTP dev (chỉ đọc) | Chủ dự án | — | Không | Có | rỗng → không chạy |
 | `VTP_E2E_CREATE_TEST_ORDER` | VAR | OPTIONAL | `yes` = với push `deploy/staging`, E2E xin tạo+huỷ đơn thử (vẫn cần `VTP_E2E_ALLOW_CREATE=yes`) | Chủ dự án duyệt | Đặt lại rỗng sau khi thử | Không | Có | rỗng |
 | `VTP_E2E_ALLOW_CREATE` | VAR | OPTIONAL | `yes` = cho phép E2E tạo **và huỷ ngay** 1 đơn thử ở VTP dev (cần thêm input `create_test_order`) | Chủ dự án duyệt | Đặt lại rỗng sau khi thử | Không | Có | rỗng → không tạo đơn |
-| `DATABASE_URL_PSQL` | SECRET | OPTIONAL | Chỉ khi sao lưu chạy từ nơi có quyền: dạng libpq `postgresql://…` cho `pg_dump` (ưu tiên `PG*` + `~/.pgpass`) | Chủ dự án | Cùng `DATABASE_URL` | Không | **Không** | không có |
-| Credential của cơ chế deploy (vd. khoá SSH) | SECRET | Tuỳ target | **Chưa đặt tên** — phụ thuộc cơ chế chủ dự án chọn; sẽ ghi vào đây khi cài | Chủ dự án | — | Không | **Không** | — |
+| `DATABASE_URL_PSQL` | SECRET | OPTIONAL | Dạng libpq `postgresql://…` cho `psql`/`pg_dump` trước migration (method `vps` ghi nó vào file env; thiếu thì tự bỏ `+psycopg` khỏi `DATABASE_URL`) | Chủ dự án | Cùng `DATABASE_URL` | Có (file env) | **Không** | suy từ `DATABASE_URL` |
+| `STAGING_SSH_HOST` | SECRET | REQUIRED khi method `vps` | Hostname/IP của **VPS staging** (không phải production) | Chủ dự án | Khi đổi máy | Không | **Không** | không có → `STAGING_TARGET_MISSING` |
+| `STAGING_SSH_USER` | SECRET | REQUIRED khi method `vps` | User deploy **không phải root**, thuộc nhóm `docker` | Chủ dự án | — | Không | **Không** | `root` → bị từ chối |
+| `STAGING_SSH_PRIVATE_KEY` | SECRET | REQUIRED khi method `vps` | Khoá SSH riêng (OpenSSH) chỉ dùng cho staging | Chủ dự án tạo cặp khoá mới | Theo lịch + khi nghi lộ | Không | **Không** | không có |
+| `STAGING_SSH_KNOWN_HOSTS` | SECRET | REQUIRED khi method `vps` | Dòng `known_hosts` của VPS (pin host key; `StrictHostKeyChecking=yes`) — đối chiếu vân tay trên chính VPS trước khi dán | Chủ dự án | Khi cài lại máy | Không | Không nhạy nhưng đặt là secret cho gọn | không có |
+| `STAGING_APP_DIR` | VAR | REQUIRED khi method `vps` | Thư mục trên VPS (tuyệt đối, ≥ 2 cấp, vd. `/srv/vip-staging`), phải chứa file marker `STAGING_TARGET` | Chủ dự án | — | Không | Có | không có |
+| `STAGING_SSH_PORT` | VAR | OPTIONAL | Cổng SSH | — | — | Không | Có | `22` |
+| `STAGING_APP_PORT` | VAR | OPTIONAL | Cổng trên `127.0.0.1` của VPS mà reverse proxy trỏ tới | — | — | Không | Có | `8000` |
+| `STAGING_EXPECTED_HOSTNAME` | VAR | OPTIONAL (khuyến nghị) | `hostname` của VPS staging; khác → `STAGING_GUARD` | Chủ dự án | — | Không | Có | không kiểm |
+| `STAGING_HOST_DENYLIST` | VAR | OPTIONAL (khuyến nghị) | Host/IP **production**, cách nhau bằng dấu phẩy; `STAGING_SSH_HOST` trùng → `PRODUCTION_GUARD` | Chủ dự án | Khi đổi máy production | Không | Có | rỗng |
+| `STAGING_DOCKER_NETWORK` | VAR | OPTIONAL | Mạng Docker cho container (vd. `host` hoặc mạng chứa PG) | — | — | Không | Có | `bridge` |
+| `STAGING_PG_TOOLS_IMAGE` | VAR | OPTIONAL | Ảnh có `psql`/`pg_dump` 16 (cấm `:latest`, được ghim `@sha256:`) | — | — | Không | Có | `postgres:16` |
 
 ## C. Bảo vệ Environment (khuyến nghị)
 

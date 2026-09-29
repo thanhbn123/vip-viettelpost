@@ -24,6 +24,18 @@ DEV_VTP_URL = "https://partnerdev.viettelpost.vn"
 G15_SECRETS = ("DATABASE_URL", "WEBHOOK_SHARED_SECRET", "API_KEYS", "SMOKE_API_KEY")
 VTP_CREDENTIALS = (("VTP_TOKEN",), ("VTP_USERNAME", "VTP_PASSWORD"))
 OPTIONAL_SECRETS = ("DATABASE_URL_PSQL",)
+# Extra inputs a deploy method needs (checked only when that method is selected).
+METHOD_REQUIREMENTS = {
+    "vps": {
+        "secrets": (
+            "STAGING_SSH_HOST",
+            "STAGING_SSH_USER",
+            "STAGING_SSH_PRIVATE_KEY",
+            "STAGING_SSH_KNOWN_HOSTS",
+        ),
+        "variables": ("STAGING_APP_DIR",),
+    },
+}
 
 
 def implemented_methods() -> list[str]:
@@ -59,6 +71,13 @@ def check(env: dict[str, str], gate: str) -> dict:
                 "variable STAGING_DEPLOY_METHOD (not an implemented method; "
                 f"allowed: {implemented_methods() or 'none yet'})"
             )
+        else:
+            needs = METHOD_REQUIREMENTS.get(method, {})
+            for name in needs.get("secrets", ()):
+                need_secret(name)
+            for name in needs.get("variables", ()):
+                if not env.get(name, "").strip():
+                    missing.append(f"variable {name}")
 
     if gate in ("g08", "all"):
         if not any(all(_has(env, n) for n in group) for group in VTP_CREDENTIALS):
