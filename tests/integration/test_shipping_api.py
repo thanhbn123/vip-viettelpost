@@ -366,3 +366,124 @@ def test_application_layer_is_provider_neutral():
     for rel in ("services/shipping_app.py", "api/shipping.py", "api/schemas.py", "api/errors.py"):
         text = (root / rel).read_text(encoding="utf-8").lower()
         assert "viettel" not in text and "vtp" not in text, rel
+
+
+# --- verifier findings on PR #8 ------------------------------------------------------
+
+
+def test_concurrent_cancels_call_the_provider_once(env):
+    client, provider, sessions = env
+    shipment = client.post(f"{BASE}/shipments", json=create_body()).json()
+    original = provider.cancel_shipment
+
+    async def slow_cancel(tracking):
+        await asyncio.sleep(0.3)
+        return await original(tracking)
+
+    provider.cancel_shipment = slow_cancel
+    results = []
+    lock = threading.Lock()
+    start = threading.Barrier(2)
+
+    def cancel():
+        start.wait()
+        response = client.post(f"{BASE}/shipments/{shipment['id']}/cancel")
+        with lock:
+            results.append((response.status_code, response.json().get("error")))
+
+    threads = [threading.Thread(target=cancel) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+    assert sorted(results, key=str) == sorted(
+        [(200, None), (409, "operation_in_progress")], key=str
+    )
+    assert provider.calls.count("cancel_shipment") == 1
+    assert audit_actions(sessions, shipment["id"]).count("SHIPMENT_CANCELLED") == 1
+
+
+def test_cancel_never_overwrites_a_status_changed_meanwhile(env):
+    client, provider, sessions = env
+    shipment = client.post(f"{BASE}/shipments", json=create_body()).json()
+    original = provider.cancel_shipment
+
+    async def cancel_while_delivered(tracking):
+        # a webhook reports DELIVERED while the carrier processes the cancellation
+        with sessions() as s, s.begin():
+            s.get(ShipmentRecord, shipment["id"]).status = "DELIVERED"
+        return await original(tracking)
+
+    provider.cancel_shipment = cancel_while_delivered
+    response = client.post(f"{BASE}/shipments/{shipment['id']}/cancel")
+    assert response.status_code == 409 and response.json()["error"] == "invalid_shipment_state"
+    assert status_of(sessions, shipment["id"]) == "DELIVERED"
+    assert audit_actions(sessions, shipment["id"])[-1] == "PROVIDER_CANCELLED_AFTER_STATUS_CHANGE"
+    with sessions() as s:
+        assert s.get(ShipmentRecord, shipment["id"]).operation_lock is None
+    # DELIVERED stays active: the order is still blocked
+    assert client.post(f"{BASE}/shipments", json=create_body()).status_code == 409
+
+
+def test_stale_operation_lock_is_reclaimed(env):
+    from datetime import UTC, datetime, timedelta
+
+    client, provider, sessions = env
+    shipment = client.post(f"{BASE}/shipments", json=create_body()).json()
+    with sessions() as s, s.begin():
+        row = s.get(ShipmentRecord, shipment["id"])
+        row.operation_lock = "CANCEL"
+        row.operation_lock_at = datetime.now(UTC) - timedelta(minutes=1)
+    assert client.post(f"{BASE}/shipments/{shipment['id']}/cancel").status_code == 409
+    with sessions() as s, s.begin():
+        s.get(ShipmentRecord, shipment["id"]).operation_lock_at = datetime.now(UTC) - timedelta(
+            hours=1
+        )
+    assert client.post(f"{BASE}/shipments/{shipment['id']}/cancel").status_code == 200
+
+
+def test_failed_cancel_releases_the_lock(env):
+    client, provider, sessions = env
+    shipment = client.post(f"{BASE}/shipments", json=create_body()).json()
+    provider.fail_with["cancel_shipment"] = ProviderUnavailableError("down")
+    assert client.post(f"{BASE}/shipments/{shipment['id']}/cancel").status_code == 503
+    del provider.fail_with["cancel_shipment"]
+    assert client.post(f"{BASE}/shipments/{shipment['id']}/cancel").status_code == 200
+
+
+def test_unexpected_error_returns_json_500_without_details(env, monkeypatch):
+    client, provider, _ = env
+
+    async def broken(request):
+        raise RuntimeError("secret internals 0900000000")
+
+    monkeypatch.setattr(provider, "calculate_fee", broken)
+    with TestClient(app, raise_server_exceptions=False) as c:
+        body = {k: v for k, v in create_body().items() if k != "order_id"}
+        response = c.post(f"{BASE}/quote", json=body, headers={"X-Request-ID": "boom-1"})
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": "internal_error",
+        "detail": "unexpected error",
+        "request_id": "boom-1",
+    }
+    assert "0900000000" not in response.text
+
+
+def test_only_the_active_order_index_counts_as_duplicate():
+    from sqlalchemy.exc import IntegrityError
+
+    from app.services.shipping_app import _is_active_order_conflict
+
+    def err(text):
+        return IntegrityError("stmt", {}, Exception(text))
+
+    assert _is_active_order_conflict(
+        err('duplicate key value violates unique constraint "uq_shipments_active_provider_order"')
+    )
+    assert _is_active_order_conflict(
+        err("UNIQUE constraint failed: shipments.provider_id, shipments.order_id")
+    )
+    assert not _is_active_order_conflict(
+        err("CHECK constraint failed: ck_shipments_order_id_not_empty")
+    )

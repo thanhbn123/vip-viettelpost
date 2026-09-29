@@ -18,6 +18,7 @@ from app.providers.viettel_post.errors import (
     ViettelPostAuthError,
     ViettelPostBusinessError,
     ViettelPostClientError,
+    ViettelPostHTTPAuthError,
     ViettelPostInvalidResponseError,
     ViettelPostNetworkError,
     ViettelPostServerError,
@@ -127,6 +128,8 @@ class ViettelPostClient:
                     text = f"{text}: {detail}"
             if response.status_code >= 500:
                 raise ViettelPostServerError(text, status_code=response.status_code)
+            if response.status_code in (401, 403):
+                raise ViettelPostHTTPAuthError(text, status_code=response.status_code)
             raise ViettelPostClientError(text, status_code=response.status_code)
 
         if body is _NOT_JSON:

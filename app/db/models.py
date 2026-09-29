@@ -191,6 +191,9 @@ class Shipment(Base):
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
     created_by: Mapped[str | None] = mapped_column(String(128))
+    # shp_0003: in-flight provider mutation claim (e.g. "CANCEL"), see D-028.
+    operation_lock: Mapped[str | None] = mapped_column(String(32))
+    operation_lock_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     provider: Mapped[ShippingProvider] = relationship()
     packages: Mapped[list["ShipmentPackage"]] = relationship(

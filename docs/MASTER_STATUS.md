@@ -14,7 +14,7 @@ Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập
 | G03 | Webhook / status mapper | PASS — MERGED qua PR #6 | `feature/vtp-webhook-status` | #3 | `a45b7fd6b692` | success | 80 passed | — | — |
 | G04 | Database / migrations | PASS — MERGED qua PR #6 | `feature/shp-database` | #4 | `4df8ce7b699b` | success | 49 passed | — | — |
 | G05 | Integration foundation | **PASS — MERGED** (merge `cc271b5`) | `integration/cr-shp-001` | #6 (issue #5) | `20f32b4a0630` | PR run 36528693788 success; sau merge `develop` run 36528952907 success | SQLite 290 passed; PG16 350 passed / 1 skipped | — | — |
-| G06 | Application service / REST API | IN PROGRESS | `feature/g06-application-api` | (mở) | xem PR | chờ | SQLite 317 passed; SQLite+PG16 cục bộ 401 passed / 1 skipped | — | CI → verifier → cổng merge |
+| G06 | Application service / REST API | IN PROGRESS — sửa sau verifier | `feature/g06-application-api` | #8 (issue #7) | xem PR | lần 1 (`2c02b53`) success; verifier PASS + 2 MEDIUM → đã sửa | SQLite 325 passed; SQLite+PG16 cục bộ 414 passed / 1 skipped | — | CI → cổng merge |
 | G07 | Durable webhook processing (nối vận đơn) | OPEN | — | — | — | — | — | — | sau G06 |
 | G08 | VTP sandbox / dev E2E | BLOCKED_EXTERNAL_CREDENTIAL | — | — | — | — | — | R-001 | chủ dự án cấp credential dev |
 | G09 | Shipment management / operational API | OPEN | — | — | — | — | — | — | — |

@@ -57,6 +57,10 @@ class ViettelPostClientError(ViettelPostHTTPError, ProviderRejectedError):
     """HTTP 4xx."""
 
 
+class ViettelPostHTTPAuthError(ViettelPostClientError, ProviderAuthError):
+    """HTTP 401/403: the gateway's credentials or token were refused."""
+
+
 class ViettelPostServerError(ViettelPostHTTPError, ProviderUnavailableError):
     """HTTP 5xx."""
 
