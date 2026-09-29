@@ -58,4 +58,4 @@ OPTIONAL: `VTP_BASE_URL` (nếu đặt phải là URL dev), `VTP_TIMEOUT_SECONDS
 4. Cấp credential VTP **development** → `VTP_TOKEN` hoặc `VTP_USERNAME`/`VTP_PASSWORD`; gửi địa chỉ thử + ID địa danh → `VTP_E2E_SCENARIO_JSON`.
 5. Đăng ký URL webhook staging với VTP dev + `WEBHOOK_SHARED_SECRET`.
 6. Quyết định mở (không chặn staging, chặn production): `DECISIONS.md` mục "Quyết định còn mở"; riêng D-BIZ-001 (`order_payment`) cần có trước bước tạo đơn thử của G08.
-7. Khuyến nghị: ruleset cho `develop` và `deploy/staging` (chỉ chủ dự án được cập nhật, không force push) — hiện repo PUBLIC và không có bảo vệ nhánh nào.
+7. Ruleset cho `develop` và `deploy/staging`: quản lý bằng code (`.github/rulesets/`, CR-STG-002) — không cần chủ dự án làm tay.

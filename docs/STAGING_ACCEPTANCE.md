@@ -32,7 +32,7 @@ Job có `timeout-minutes` (verify 20, preflight 5, image 20, e2e 10, deploy 45);
 | `webhook_malformed_rejected` | thân không phải JSON → 400 |
 | `webhook_idempotency` | cùng một sự kiện tổng hợp (`ORDER_NUMBER=ACCEPT-<sha8>-<epoch>`, không khớp vận đơn nào) gửi 2 lần với `TOKEN` đúng → `ACCEPTED` rồi `DUPLICATE` (qua CSDL staging thật). **Tác dụng phụ:** 1 dòng webhook `IGNORED` trong CSDL staging |
 | `no_secret_in_responses` | **mọi** phản hồi của lần chạy (kể cả 9 kiểm tra smoke, bắt qua event hook của client) không chứa giá trị bí mật — cả dạng đã giải mã URL của mật khẩu CSDL — hay chuỗi dạng JWT; chỉ báo **tên** biến |
-| `log_redaction` | log ứng dụng lấy **sau** các kiểm tra, **phải chứa `X-Request-ID` của lần chạy này** (`accept-<sha8>-<epoch>`, gắn vào mọi request) — chứng minh log đến từ đúng instance vừa phục vụ — và không chứa giá trị bí mật / JWT. Log rỗng, không lấy được, hoặc không có mã đó → `NOT_RUN` → **không** đạt |
+| `log_redaction` | log ứng dụng lấy **sau** các kiểm tra, **phải chứa `X-Request-ID` của lần chạy này** (`accept-<sha8>-<epoch>-<16 hex ngẫu nhiên>`, gắn vào mọi request, không đoán trước được) — chứng minh log đến từ đúng instance vừa phục vụ — và không chứa giá trị bí mật / JWT. Log rỗng, không lấy được, hoặc không có mã đó → `NOT_RUN` → **không** đạt |
 
 **Luật verdict**
 - `--kind staging`: **G15 = PASS** chỉ khi **cả 10** kiểm tra PASS trên URL `https://` staging thật; `NOT_RUN` không bao giờ tính là đạt. Verdict `ACCEPTED`.
