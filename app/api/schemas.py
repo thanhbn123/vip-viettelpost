@@ -1,11 +1,12 @@
 """Typed request/response bodies of the provider-neutral shipping API."""
 
 from datetime import datetime
-from typing import Annotated
+from decimal import Decimal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import AwareDatetime, BaseModel, ConfigDict, StringConstraints, field_validator
 
-from app.domain.models.common import ShippingProviderCode
+from app.domain.models.common import Money, ShippingProviderCode
 from app.domain.models.shipment import Shipment
 from app.providers.base.dto import CreateShipmentRequest, FeeRequest
 
@@ -111,3 +112,96 @@ class NoteBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+
+
+class FeeLineView(BaseModel):
+    id: int
+    fee_type: str
+    source: str
+    amount: Decimal
+    currency: str
+    note: str | None
+    provider_reference: str | None
+    created_at: datetime
+
+
+class ReconciliationView(BaseModel):
+    id: int
+    kind: str
+    statement_reference: str | None
+    expected_amount: Decimal
+    actual_amount: Decimal
+    difference_amount: Decimal
+    currency: str
+    status: str
+    note: str | None
+    reconciled_at: datetime | None
+
+
+class FinanceViewModel(BaseModel):
+    shipment_id: int
+    currency: str
+    cod_expected: Decimal | None
+    cod_collected: Decimal | None
+    cod_remitted: Decimal | None
+    cod_status: str | None
+    cod_collected_at: datetime | None
+    cod_remitted_at: datetime | None
+    remittance_reference: str | None
+    estimated_fee: Decimal | None
+    actual_fee: Decimal | None
+    fees: list[FeeLineView]
+    reconciliations: list[ReconciliationView]
+
+
+Reference = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+Note = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+
+
+class CodCollectedBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amount: Money
+    collected_at: AwareDatetime | None = None
+
+
+class CodRemittedBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amount: Money
+    reference: Reference
+    remitted_at: AwareDatetime | None = None
+
+
+class FeeBody(BaseModel):
+    """``amount`` may be negative only for ADJUSTMENT (which then requires a note)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    fee_type: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=32)]
+    source: Literal["PROVIDER_ACTUAL", "ADJUSTMENT"]
+    amount: Decimal
+    currency: Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")] = "VND"
+    note: Note | None = None
+    provider_reference: Reference | None = None
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _no_float(cls, value):
+        if isinstance(value, float):
+            raise ValueError("amount must not be a float; pass a string or integer")
+        return value
+
+
+class ReconciliationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["COD", "FEE"]
+    actual_amount: Money
+    statement_reference: Reference | None = None
+
+
+class ResolveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    note: Note
