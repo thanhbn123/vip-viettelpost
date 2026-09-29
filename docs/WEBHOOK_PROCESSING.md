@@ -19,10 +19,11 @@ Luồng cho mỗi lần Viettel Post gọi `POST /api/v1/shipping/webhooks/viett
 | Cũ hơn sự kiện đã áp (đến trễ) | ghi, `decision=OUT_OF_ORDER` | giữ | **có** |
 | Chưa có vận đơn với mã đó | không | — | dòng webhook `IGNORED/SHIPMENT_NOT_FOUND` |
 
-So thời gian: dùng `occurred_at` (có múi giờ) nếu đã cấu hình `VTP_WEBHOOK_TIMEZONE`; nếu chưa, so chữ `ORDER_STATUSDATE` của VTP đã phân tích (mọi sự kiện VTP chung một múi giờ nên so với nhau là hợp lệ); không phân tích được thì áp theo thứ tự đến.
+So thời gian: với VTP **luôn** so chữ `ORDER_STATUSDATE` đã phân tích (mọi sự kiện VTP chung một múi giờ nên so với nhau là hợp lệ), kể cả khi đã cấu hình `VTP_WEBHOOK_TIMEZONE` — để bật múi giờ về sau không làm sự kiện cũ và mới trở nên không so được (verifier PR #10, F1). Hãng không có hàm khoá riêng thì dùng `occurred_at` có múi giờ. Không phân tích được thì áp theo thứ tự đến.
 
 ## Sự kiện đến trước vận đơn (D-027)
 
 VTP có thể gọi lại trước khi luồng tạo vận đơn ghi xong mã vận đơn. Sự kiện đó được lưu `IGNORED/SHIPMENT_NOT_FOUND` và:
 - được áp ngay khi luồng tạo ghi mã vận đơn (`replay_unmatched` trong cùng transaction);
-- còn một khe hở nhỏ (transaction webhook đọc bảng vận đơn ngay trước khi luồng tạo commit) → chạy định kỳ `python -m app.jobs.replay_webhooks` (idempotent). Lịch chạy là việc của staging (G14).
+- còn một khe hở nhỏ (transaction webhook đọc bảng vận đơn ngay trước khi luồng tạo commit) → chạy định kỳ `python -m app.jobs.replay_webhooks` (idempotent). Job cũng nhận các dòng `FAILED` (hết 5 lần thử của VTP). Lịch chạy là việc của staging (G14).
+- Giám sát: `app.jobs.replay_webhooks.unmatched_with_shipment()` đếm dòng `IGNORED/SHIPMENT_NOT_FOUND` mà vận đơn nay đã có — phải về 0 sau mỗi lần chạy job.
