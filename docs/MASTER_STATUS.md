@@ -58,3 +58,5 @@ Verifier độc lập PR #25 lần 1 (HEAD `c567ccd`): **FAIL** — HIGH: `pytho
 ## Staging infrastructure closure (2026-09-29 21:54 +07)
 
 Rebaseline: `develop` `2cbcff4` = `main` không đổi `3b89b36`, không drift; 0 PR mở; Environment `staging` 0 secret / 0 variable; 0 ruleset; `develop`/`main` không được bảo vệ. CR-STG-001 (issue #27): preflight chỉ-kiểm-có-mặt, deploy contract allowlist (0 method — `STAGING_TARGET_MISSING`), acceptance runner + luật verdict (`STAGING_ACCEPTANCE.md`), job CI `rehearsal` (container tạm, không bao giờ là bằng chứng staging), ảnh mang `APP_GIT_SHA`, readiness trả `version`. **G08 = BLOCKED_EXTERNAL_CREDENTIAL, G15 = BLOCKED_STAGING_INFRA. Chưa triển khai staging thật; chưa gọi Viettel Post; chưa kiểm webhook từ Internet.**
+
+CR-STG-001 merged (PR #28 → `develop` `02600d049cb3c675fa53231cdec7025a44a83e49`; CI sau merge run 36594703999 5/5 gồm `rehearsal`). CR-STG-002 (ruleset as code) mở. **G08 = BLOCKED_EXTERNAL_CREDENTIAL, G15 = BLOCKED_STAGING_INFRA — không đổi; chưa có bằng chứng staging thật.**
