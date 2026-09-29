@@ -48,6 +48,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      REQUIRE_POSTGRES: "1"
       TEST_POSTGRES_URL: postgresql+psycopg://ci:ci-only-throwaway@localhost:5432/shipping_ci
     steps:
       - uses: actions/checkout@v4
@@ -91,7 +92,8 @@ jobs:
           listing="$(docker run --rm vip-shipping-gateway:ci sh -c 'ls -a /app')"
           echo "$listing"
           test -z "$(printf '%s\n' "$listing" | grep -xE '\.env|\.git|tests|\.venv' || true)"
-          found="$(docker run --rm vip-shipping-gateway:ci sh -c 'grep -rl must-not-be-in-image /app || true')"
+          # grep exit 1 = nothing found (good); >1 = grep error, which must fail the step.
+          found="$(docker run --rm vip-shipping-gateway:ci sh -c 'grep -rl must-not-be-in-image /app; rc=$?; [ "$rc" -le 1 ] || exit "$rc"')"
           test -z "$found"
       - name: App imports and timezone data is available
         run: >

@@ -31,10 +31,33 @@ PATTERNS.update(
         "url with password": re.compile(r"\b[a-z][a-z0-9+]*://[^\s:/@]+:([^\s@/]+)@"),
         "secret assignment": re.compile(
             r"\b(?:VTP_PASSWORD|VTP_TOKEN|WEBHOOK_SHARED_SECRET|API_KEYS|DATABASE_URL)"
-            r"[ \t]*=[ \t]*[\"']?([^\s\"'#]{8,})"
+            r"[ \t]*[=:][ \t]*[\"']?([^\s\"'#,)]{8,})",
+            re.IGNORECASE,
         ),
     }
 )
+
+
+def is_real_secret(name: str, secret: str) -> bool:
+    """Single allow-list used by the repository scan and by its self-test."""
+    lowered = secret.lower()
+    if any(marker in lowered for marker in FAKE_MARKERS):
+        return False
+    if secret.startswith("<") and secret.endswith(">"):
+        return False  # documentation placeholder such as <pass>
+    if name == "secret assignment" and secret.startswith(("sqlite:", "$", "settings.", "os.")):
+        return False  # not a literal secret value
+    return True
+
+
+def scan(text: str) -> list[str]:
+    hits = []
+    for name, pattern in PATTERNS.items():
+        for match in pattern.finditer(text):
+            secret = match.group(match.lastindex) if match.lastindex else match.group(0)
+            if is_real_secret(name, secret):
+                hits.append(name)
+    return hits
 
 
 def tracked_files() -> list[Path]:
@@ -53,14 +76,7 @@ def test_no_credential_shaped_strings_in_tracked_files():
         if path.suffix in {".png", ".jpg", ".ico", ".zip"} or not path.is_file():
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
-        for name, pattern in PATTERNS.items():
-            for match in pattern.finditer(text):
-                secret = match.group(match.lastindex) if match.lastindex else match.group(0)
-                if any(marker in secret.lower() for marker in FAKE_MARKERS):
-                    continue
-                if name == "secret assignment" and secret.startswith(("sqlite:", "$")):
-                    continue
-                findings.append(f"{path.relative_to(ROOT)}: {name}")
+        findings += [f"{path.relative_to(ROOT)}: {name}" for name in scan(text)]
     assert findings == []
 
 
@@ -88,17 +104,10 @@ def test_tripwire_catches_what_it_should():
         "WEBHOOK" + "_SHARED_SECRET=" + "q" * 20: True,
         "VTP" + "_PASSWORD=\nVTP" + "_TOKEN=": False,  # empty values must not span lines
         "postgresql+psycopg://ci:ci-only-throwaway@localhost/x": False,
+        "postgresql+psycopg://<user>:<pass>@<host>:5432/db": False,  # doc placeholder
+        "vtp" + "_password: " + "S3cretValue99": True,  # YAML / lowercase form
         "DATABASE_URL=sqlite:///./vip_shipping.db": False,
         "WEBHOOK_SHARED_SECRET=": False,
     }
     for line, expected in samples.items():
-        hit = False
-        for pattern in PATTERNS.values():
-            for m in pattern.finditer(line):
-                secret = m.group(m.lastindex) if m.lastindex else m.group(0)
-                if any(k in secret.lower() for k in FAKE_MARKERS):
-                    continue
-                if secret.startswith(("sqlite:", "$")):
-                    continue
-                hit = True
-        assert hit is expected, line
+        assert bool(scan(line)) is expected, line
