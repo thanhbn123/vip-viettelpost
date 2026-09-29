@@ -403,3 +403,37 @@ def test_unmatched_gauge(env, client):
     assert unmatched_with_shipment(env.sessions) == 1
     replay_pending(env.sessions, env.applier)
     assert unmatched_with_shipment(env.sessions) == 0
+
+
+def test_failing_early_event_replay_does_not_undo_the_create(env, client, monkeypatch):
+    client.post(HOOK, content=vtp(103, "29/09/2026 09:00:00"))  # arrives before the shipment
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("replay bug")
+
+    monkeypatch.setattr(env.applier, "replay_unmatched", broken)
+    sid = created(client)  # still 201: the shipment is recorded
+    assert env.shipment(sid).tracking_number == "TRK0001"
+    monkeypatch.undo()
+    from app.jobs.replay_webhooks import replay_pending
+
+    assert replay_pending(env.sessions, env.applier) == 1
+    assert env.shipment(sid).status == "READY_TO_PICK"
+
+
+def test_replay_job_continues_after_a_failing_key(env, client, monkeypatch):
+    from app.jobs.replay_webhooks import replay_pending
+
+    client.post(HOOK, content=vtp(200, "29/09/2026 10:00:00", number="BAD1"))
+    client.post(HOOK, content=vtp(200, "29/09/2026 10:00:00", number="TRK0001"))
+    sid = created(client)
+    original = env.applier.replay_unmatched
+
+    def flaky(session, provider_id, tracking):
+        if tracking == "BAD1":
+            raise RuntimeError("bad key")
+        return original(session, provider_id, tracking)
+
+    monkeypatch.setattr(env.applier, "replay_unmatched", flaky)
+    replay_pending(env.sessions, env.applier)  # must not raise
+    assert env.shipment(sid).status == "PICKED"
