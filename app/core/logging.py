@@ -2,7 +2,8 @@
 
 Masking is a safety net, not the primary control: code must still never log secrets.
 It masks JWT-shaped strings and every configured secret value (VTP password/token,
-webhook secret, API keys) wherever they appear in a formatted message.
+webhook secret) wherever they appear in a formatted message or traceback. Raw API keys
+are never configured (only their SHA-256), so they are not in this list.
 """
 
 import contextvars

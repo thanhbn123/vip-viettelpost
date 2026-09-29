@@ -1,7 +1,7 @@
 # API — VIP Shipping Gateway (trung lập với hãng)
 
 Tiền tố: `/api/v1/shipping`. Mọi phản hồi mang header `X-Request-ID` (nhận từ bên gọi nếu ≤ 64 ký tự in được, không thì sinh mới); mã này được ghi vào audit.
-**Chưa có xác thực bên gọi** (G12). Không mở ra Internet trước G12.
+Mọi route (trừ webhook) cần header `X-API-Key` (G12, D-033). Lược đồ OpenAPI: `GET /openapi.json` (cần key); không phục vụ `/docs`, `/redoc`.
 
 | Method | Path | Thân yêu cầu | Trả về |
 |---|---|---|---|

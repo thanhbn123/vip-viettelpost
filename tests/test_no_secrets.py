@@ -22,7 +22,19 @@ PATTERNS = {
     "slack token": re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),
     "jwt": re.compile(r"\beyJ[A-Za-z0-9_-]{15,}\.eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{10,}"),
 }
-FAKE_MARKERS = ("fake", "not-real", "not_real", "test", "example", "dummy")
+# Matched against the SECRET TEXT ITSELF, not the whole line (verifier PR #18 finding 7:
+# a line-level match let "latest"/"attestation" comments hide a real token).
+FAKE_MARKERS = ("fake", "not-real", "not_real", "test", "example", "dummy", "throwaway", "decoy")
+# Credential shapes this project actually uses.
+PATTERNS.update(
+    {
+        "url with password": re.compile(r"\b[a-z][a-z0-9+]*://[^\s:/@]+:([^\s@/]+)@"),
+        "secret assignment": re.compile(
+            r"\b(?:VTP_PASSWORD|VTP_TOKEN|WEBHOOK_SHARED_SECRET|API_KEYS|DATABASE_URL)"
+            r"[ \t]*=[ \t]*[\"']?([^\s\"'#]{8,})"
+        ),
+    }
+)
 
 
 def tracked_files() -> list[Path]:
@@ -43,8 +55,10 @@ def test_no_credential_shaped_strings_in_tracked_files():
         text = path.read_text(encoding="utf-8", errors="ignore")
         for name, pattern in PATTERNS.items():
             for match in pattern.finditer(text):
-                line = text[text.rfind("\n", 0, match.start()) + 1 : text.find("\n", match.end())]
-                if any(marker in line.lower() for marker in FAKE_MARKERS):
+                secret = match.group(match.lastindex) if match.lastindex else match.group(0)
+                if any(marker in secret.lower() for marker in FAKE_MARKERS):
+                    continue
+                if name == "secret assignment" and secret.startswith(("sqlite:", "$")):
                     continue
                 findings.append(f"{path.relative_to(ROOT)}: {name}")
     assert findings == []
@@ -61,3 +75,30 @@ def test_tests_never_use_the_default_database_url():
 
     assert "vip_shipping.db" not in settings.database_url
     assert settings.database_url.startswith("sqlite:///")
+
+
+def test_tripwire_catches_what_it_should():
+    """The patterns and allow-list themselves (samples built at runtime, not stored)."""
+    jwt = "eyJ" + "a" * 20 + ".eyJ" + "b" * 20 + "." + "c" * 12
+    gh = "ghp_" + "Z" * 36
+    samples = {
+        f"token = '{jwt}'  # latest token": True,
+        f"x = '{gh}'  # attestation": True,
+        "DATABASE" + "_URL=postgresql://svc:" + "Pa55" + "word9@db:5432/x": True,
+        "WEBHOOK" + "_SHARED_SECRET=" + "q" * 20: True,
+        "VTP" + "_PASSWORD=\nVTP" + "_TOKEN=": False,  # empty values must not span lines
+        "postgresql+psycopg://ci:ci-only-throwaway@localhost/x": False,
+        "DATABASE_URL=sqlite:///./vip_shipping.db": False,
+        "WEBHOOK_SHARED_SECRET=": False,
+    }
+    for line, expected in samples.items():
+        hit = False
+        for pattern in PATTERNS.values():
+            for m in pattern.finditer(line):
+                secret = m.group(m.lastindex) if m.lastindex else m.group(0)
+                if any(k in secret.lower() for k in FAKE_MARKERS):
+                    continue
+                if secret.startswith(("sqlite:", "$")):
+                    continue
+                hit = True
+        assert hit is expected, line
