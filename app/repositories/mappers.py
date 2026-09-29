@@ -65,27 +65,28 @@ def address_from_record(record: ShipmentRecord, prefix: str) -> Address | None:
     return Address(**values)
 
 
-def new_shipment_from_created(
+def new_shipment_from_request(
     request: CreateShipmentRequest,
-    result: CreateShipmentResult,
     *,
     provider_id: int,
-    shipping_account_id: int | None = None,
+    status: ShipmentStatus,
+    tracking_number: str | None = None,
+    provider_status: str | None = None,
     estimated_fee: Money | None = None,
+    shipping_account_id: int | None = None,
 ) -> NewShipment:
-    """Repository input for a shipment the provider has just created."""
+    """Repository input for a shipment request (before or after the provider call)."""
     currency = single_currency(
-        [request.cod_amount, result.fee, estimated_fee]
-        + [p.declared_value for p in request.packages]
+        [request.cod_amount, estimated_fee] + [p.declared_value for p in request.packages]
     )
     return NewShipment(
         order_id=request.order_id,
         provider_id=provider_id,
         shipping_account_id=shipping_account_id,
-        tracking_number=result.tracking_number,
+        tracking_number=tracking_number,
         service_code=request.service_code,
-        status=result.status.value,
-        provider_status=result.provider_status,
+        status=status.value,
+        provider_status=provider_status,
         sender=address_to_record(request.sender),
         receiver=address_to_record(request.receiver),
         packages=[
@@ -101,9 +102,29 @@ def new_shipment_from_created(
         ],
         cod_amount=request.cod_amount.amount if request.cod_amount else Decimal(0),
         currency=currency,
-        estimated_fee=(estimated_fee or result.fee).amount
-        if (estimated_fee or result.fee)
-        else None,
+        estimated_fee=estimated_fee.amount if estimated_fee else None,
+    )
+
+
+def new_shipment_from_created(
+    request: CreateShipmentRequest,
+    result: CreateShipmentResult,
+    *,
+    provider_id: int,
+    shipping_account_id: int | None = None,
+    estimated_fee: Money | None = None,
+) -> NewShipment:
+    """Repository input for a shipment the provider has just created."""
+    fee = estimated_fee or result.fee
+    single_currency([request.cod_amount, result.fee, estimated_fee])
+    return new_shipment_from_request(
+        request,
+        provider_id=provider_id,
+        status=result.status,
+        tracking_number=result.tracking_number,
+        provider_status=result.provider_status,
+        estimated_fee=fee,
+        shipping_account_id=shipping_account_id,
     )
 
 
