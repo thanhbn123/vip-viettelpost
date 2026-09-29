@@ -1,0 +1,18 @@
+# Never ship local secrets, databases, virtualenvs or VCS data in the image.
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+*.sqlite
+*.pem
+*.key
+.venv
+.git
+.github
+.pytest_cache
+.ruff_cache
+__pycache__
+*.pyc
+tests
+docs
