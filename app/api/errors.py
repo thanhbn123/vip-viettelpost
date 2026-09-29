@@ -15,6 +15,7 @@ from app.providers.base.errors import (
     ProviderUnavailableError,
 )
 from app.repositories.mappers import MixedCurrencyError
+from app.services.finance import FinanceError, ReconciliationNotFoundError
 from app.services.shipping_app import (
     DuplicateActiveShipmentError,
     InvalidShipmentStateError,
@@ -30,6 +31,8 @@ logger = logging.getLogger("app.api.errors")
 # (status, code, expose provider/app message?)
 _MAPPING: list[tuple[type[BaseException], int, str, bool]] = [
     (ShipmentNotFoundError, 404, "shipment_not_found", True),
+    (ReconciliationNotFoundError, 404, "reconciliation_not_found", True),
+    (FinanceError, 422, "invalid_finance_operation", True),
     (UnsupportedProviderError, 404, "provider_not_supported", True),
     (ProviderDisabledError, 409, "provider_disabled", True),
     (DuplicateActiveShipmentError, 409, "duplicate_active_shipment", True),

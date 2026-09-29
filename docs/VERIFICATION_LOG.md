@@ -49,3 +49,29 @@ Test hồi quy #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên m�
 
 Test F1 và F3 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
 - Lần 2, HEAD `f635fa2`: 344 passed; 452 passed / 1 skipped. 60 phép thử race (retry `FAILED` trực tiếp × job replay, cả hai CSDL): mỗi sự kiện áp đúng 1 lần. **PASS** → merge PR #10 (`0fbdc2d`). Còn LOW L1 (job dừng cả lượt khi một khoá lỗi), L2 (replay trong luồng tạo không cô lập), L3 (thước đo bỏ sót `FAILED`/`RECEIVED`) → sửa ở PR G09, có test.
+
+## PR #12 — G09 Operational API
+
+- Lần 1, HEAD `03231f7`: 352 passed (SQLite); 468 passed / 1 skipped (PG riêng). Verifier tự thử savepoint (lỗi sau khi đã ghi một phần; transaction PG bị hỏng) — cả hai phục hồi đúng. **PASS** → merge PR #12 (`e828265`). Ghi nhận, không chặn:
+
+| # | Mức | Phát hiện | Hướng xử lý |
+|---|---|---|---|
+| 1 | LOW | SQLite so `created_at` dạng chữ: dòng do `CURRENT_TIMESTAMP` của CSDL ghi (không phần lẻ giây) lệch biên lọc | Chỉ dòng chèn bằng SQL thô; ORM luôn ghi giờ Python. SQLite chỉ dùng dev/test |
+| 2 | LOW | Thước đo `unmatched_with_shipment` có thể > 0 thoáng qua trong lúc hãng còn thử lại | Cảnh báo khi **giữ** > 0 qua nhiều lần đo, không theo một mẫu (`OBSERVABILITY.md`, G11) |
+| 3 | LOW | Danh sách sắp theo `created_at` không có index; mỗi trang đếm toàn bộ | Index `(created_at, id)` ở G13 |
+| 4 | INFO | Cờ xem xét tay không bao giờ tự hết | Đã ghi trong `API.md`; cần quyết định nghiệp vụ (R-012) |
+| 5 | INFO | Test savepoint của PR không phủ ca ghi dở/transaction PG hỏng | Bổ sung test ở G13 |
+
+## PR #14 — G10 COD / fee / reconciliation
+
+- Lần 1, HEAD `d1eee6a`: 358 passed (SQLite); 480 passed / 1 skipped (PG riêng). 20 luồng `add_fee` đồng thời: `actual_fee` = tổng dòng ở cả hai CSDL. **FAIL**:
+
+| # | Mức | Phát hiện | Xử lý |
+|---|---|---|---|
+| 1 | HIGH | Nộp lần hai sau `REMITTED` giữ `REMITTED` trong khi số nộp ≠ số thu | `REMITTED` chặn nộp tiếp (409); trạng thái suy lại từ ba con số sau mỗi lần ghi |
+| 2 | MEDIUM | Số nộp vượt số thu; số thu hạ dưới số đã nộp | 422 cả hai chiều |
+| 3 | LOW | Tổng phí vượt `NUMERIC(18,2)` → 500 | Bọc thành `FinanceError` → 422 |
+| 4 | LOW | Đối soát COD trên vận đơn không COD coi dự kiến = 0 | 422, như các thao tác COD khác |
+| 5 | INFO | COD vận đơn huỷ; thời điểm tương lai; chung mã audit điều chỉnh/chốt | Ghi vào `FINANCE.md` / R-011 |
+
+Test #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
