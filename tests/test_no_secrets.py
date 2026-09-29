@@ -54,3 +54,10 @@ def test_no_env_or_database_files_tracked():
     names = [p.name for p in tracked_files()]
     assert ".env" not in names
     assert not [n for n in names if n.endswith((".db", ".sqlite", ".pem", ".key"))]
+
+
+def test_tests_never_use_the_default_database_url():
+    from app.core.config import settings
+
+    assert "vip_shipping.db" not in settings.database_url
+    assert settings.database_url.startswith("sqlite:///")

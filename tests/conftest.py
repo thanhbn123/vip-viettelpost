@@ -8,7 +8,14 @@ staging or production data.
 """
 
 import os
+import tempfile
 from pathlib import Path
+
+# Before any application import: tests must never open the default ./vip_shipping.db or
+# a DATABASE_URL inherited from the developer's shell or .env (env var beats .env).
+os.environ["DATABASE_URL"] = (
+    f"sqlite:///{Path(tempfile.gettempdir()) / f'vip-shipping-tests-{os.getpid()}.db'}"
+)
 
 import pytest
 from alembic import command
