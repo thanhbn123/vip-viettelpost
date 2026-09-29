@@ -20,7 +20,6 @@ from app.core.config import settings
 
 API_KEY_HEADER = "X-API-Key"
 _ENTRY = re.compile(r"^([A-Za-z0-9_.-]{1,64}):([0-9a-f]{64})$")
-MIN_KEY_LENGTH = 32
 
 
 class AuthNotConfiguredError(Exception):

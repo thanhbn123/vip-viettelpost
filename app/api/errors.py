@@ -30,6 +30,13 @@ from app.services.shipping_app import (
 
 logger = logging.getLogger("app.api.errors")
 
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "no-store",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
+
 # (status, code, expose provider/app message?)
 _MAPPING: list[tuple[type[BaseException], int, str, bool]] = [
     (UnauthenticatedError, 401, "unauthorized", False),
@@ -95,7 +102,8 @@ async def _unexpected(request: Request, exc: Exception) -> JSONResponse:
         status_code=500,
         content={"error": "internal_error", "detail": "unexpected error", "request_id": rid},
         # This response bypasses the request-id middleware; set the header here.
-        headers={"X-Request-ID": rid} if rid else None,
+        # Rendered outside the header middleware: add the security headers here too.
+        headers={**SECURITY_HEADERS, **({"X-Request-ID": rid} if rid else {})},
     )
 
 

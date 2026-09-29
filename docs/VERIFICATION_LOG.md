@@ -91,3 +91,19 @@ Test #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
 | 6 | LOW | Độ trễ xấu nhất ~60,6 s khi thử lại | Ghi trong `OBSERVABILITY.md` |
 | 7 | LOW | Logger uvicorn không qua lớp che | Ghi giới hạn trong `OBSERVABILITY.md` |
 | 8 | LOW | Lỗi cây migration → 500 thay vì 503 | Bắt trong readiness; head được cache |
+
+## PR #18 — G12 Security hardening
+
+- Lần 1, HEAD `2ed2c98`: 398 passed (SQLite); 529 passed / 1 skipped (PG riêng); ruff sạch; pip-audit 0. Thử vượt xác thực (gạch chéo cuối, `//`, mã hoá URL, method override, HEAD/OPTIONS, header trùng/hoa/khoảng trắng): không vượt được. **PASS**, kèm:
+
+| # | Mức | Phát hiện | Xử lý (trước khi merge) |
+|---|---|---|---|
+| 1 | MEDIUM | Thân `chunked` không có Content-Length vượt giới hạn, kể cả khi **chưa xác thực** (50 MB đọc hết, RSS 106→242 MB) | Middleware ASGI ngoài cùng đếm byte thật, trước định tuyến/xác thực; test hỏng trên mã cũ |
+| 2 | MEDIUM | `/docs`, `/redoc`, `/openapi.json` công khai, trái `SECURITY.md` | Tắt UI; `/openapi.json` sau API key |
+| 3 | LOW | `.dockerignore` chỉ khớp ở gốc | Mẫu `**/`; CI cài mồi cả ở `app/.env`, `migrations/decoy.db` |
+| 4 | LOW | Kiểm tra CI của ảnh dễ vỡ (`!` + errexit) | So sánh tường minh `test -z`, `set -euo pipefail` |
+| 5 | LOW | `API_KEYS` sai không chặn khởi động | Kiểm lúc nạp app → không khởi động |
+| 6 | LOW | "`hide_parameters` mọi engine" nói quá | Thêm cho Alembic CLI; sửa câu chữ phạm vi |
+| 7 | LOW | Tripwire bỏ sót nhiều loại, cho qua cả dòng có chữ "test" | Xét trên chính chuỗi; thêm URL có mật khẩu và các biến bí mật của dự án; test tự kiểm |
+| 8 | LOW | Phản hồi 500 thiếu header bảo mật | Thêm vào handler 500 |
+| 9 | LOW/INFO | Docstring che API key sai; file DB tạm của test để lại; ảnh gốc chưa ghim digest; cảnh báo `httpx2` của Starlette | Sửa docstring; dọn thư mục tạm cuối phiên test; ghi chưa làm |
