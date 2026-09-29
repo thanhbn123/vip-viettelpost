@@ -14,3 +14,6 @@ Mức: CRITICAL / HIGH / MEDIUM / LOW. Chủ = ai phải hành động.
 | R-008 | Chưa có môi trường staging được cấp phép | HIGH (chặn G15) | Không thể STAGING PASS | G14 chuẩn bị đủ tài liệu/script; G15 = `STAGING ENVIRONMENT REQUIRED` | Chủ dự án cấp staging |
 | R-009 | Nhiều kiện: không gửi kích thước cho VTP | LOW | Cước VTP tính theo khối lượng quy đổi có thể lệch | D-004; bên gọi có thể tách đơn | Theo dõi ở G08 |
 | R-010 | Không có API tra cứu vận đơn VTP chính thức | MEDIUM | Trạng thái chỉ đến qua webhook; lỡ webhook thì không tự đối soát | D-019; theo dõi webhook `FAILED`/review | Hỏi VTP |
+| R-011 | Quy tắc kế toán COD (ai sở hữu tiền, khi nào coi là tất toán, ai được điều chỉnh phí) chưa chốt | MEDIUM | G10 chỉ ghi số và suy trạng thái máy móc | Không mã hoá luật nghiệp vụ; ghi rõ trong `docs/FINANCE.md` | Chủ dự án quyết |
+| R-012 | Quyền ghi đè trạng thái vận đơn bằng tay chưa chốt | LOW | Người vận hành chỉ ghi chú được, chưa sửa được trạng thái | Không làm endpoint ghi đè | Chủ dự án quyết |
+| R-013 | Chưa có xác thực bên gọi API | HIGH (chặn staging mở ra ngoài) | Ai gọi được API là tạo/huỷ được vận đơn | G12 | G12 |

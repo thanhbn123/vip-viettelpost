@@ -48,3 +48,17 @@ Thân lỗi: `{"error": "<mã>", "detail": "<ngắn, an toàn>", "request_id": "
 | 500 | `persistence_failed_after_provider_success` | Xem bước 4 |
 | 501 | `not_implemented` | Hãng không có tính năng (vd. tra cứu VTP) |
 | 500 | `internal_error` | Lỗi bất ngờ; chi tiết chỉ ở log, tra theo `request_id` |
+
+## API vận hành (G09)
+
+| Method | Path | Ghi chú |
+|---|---|---|
+| GET | `/shipments` | Lọc: `status` (lặp được), `provider`, `order_id`, `tracking_number`, `requires_review`, `created_from`/`created_to` (bắt buộc có múi giờ); `limit` 1–100 (mặc định 20), `offset`. Mới nhất trước. Trả `{items, total, limit, offset}`; **không** có địa chỉ/người nhận. |
+| GET | `/shipments?requires_review=true` | Hàng đợi xem xét tay (vận đơn có sự kiện cần xem). |
+| GET | `/shipments?status=READY_TO_CREATE` | Đơn bị khoá do kết quả tạo không rõ (D-023). |
+| GET | `/shipments/{id}/events` | Lịch sử trạng thái: canonical, mã/tên trạng thái gốc của hãng, `requires_review`, `decision` (`AFTER_TERMINAL_STATUS`, `OUT_OF_ORDER`...), thời gian gốc. |
+| GET | `/shipments/{id}/webhook-events` | Các lần hãng gọi lại (đã chuẩn hoá: trạng thái xử lý, số lần thử, mã lỗi). Payload thô **không** trả ra. |
+| GET | `/shipments/{id}/audit` | Nhật ký audit của vận đơn. |
+| POST | `/shipments/{id}/notes` | Ghi chú của người vận hành (1–500 ký tự) vào audit, **không** đổi trạng thái. |
+
+Chưa có: đổi trạng thái bằng tay (quyền ghi đè là quyết định nghiệp vụ — R-012), xoá cờ xem xét.
