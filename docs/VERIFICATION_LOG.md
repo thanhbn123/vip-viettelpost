@@ -75,3 +75,4 @@ Test F1 và F3 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
 | 5 | INFO | COD vận đơn huỷ; thời điểm tương lai; chung mã audit điều chỉnh/chốt | Ghi vào `FINANCE.md` / R-011 |
 
 Test #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
+- Lần 2, HEAD `c46def5`: 363 passed; 490 passed / 1 skipped. 30 luồng thu/nộp COD trộn: trạng thái luôn khớp số, nộp ≤ thu. **PASS** → merge PR #14 (`7acc3ba`). Còn LOW: số 0 nhập nhầm rồi nộp 0 thành `REMITTED` cuối cùng (sửa qua đối soát; có cho nộp 0 hay không là R-011).

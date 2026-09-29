@@ -2,8 +2,8 @@
 
 Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập nhật sau mỗi gate. Giờ theo +07:00.
 
-**Cập nhật lần cuối:** 2026-09-29 (G09 đã merge; G10 mở PR)
-**`main`:** `3b89b367cf3bd57ac6021645ff15ae37958898f7` · **`develop`:** `e828265892a064c92a51e9305acf4574a96544d6` (sau merge PR #12)
+**Cập nhật lần cuối:** 2026-09-29 (G10 đã merge; G11 mở PR)
+**`main`:** `3b89b367cf3bd57ac6021645ff15ae37958898f7` · **`develop`:** `7acc3ba0be7b8c36128a12da06a6c6c276eb493f` (sau merge PR #14)
 **Migration head:** `develop` = `shp_0003_active_order_guard`
 
 | Gate | Phạm vi | Trạng thái | Nhánh | PR | HEAD SHA | CI | Tests | Blockers | Việc kế tiếp |
@@ -18,8 +18,8 @@ Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập
 | G07 | Durable webhook processing (nối vận đơn) | **PASS — MERGED** (merge `0fbdc2d`) | `feature/g07-webhook-apply` | #10 (issue #9) | `f635fa2be261` | PR run 36531821878 success; sau merge `develop` run 36532096484 success | SQLite 344 passed; PG16 452 passed / 1 skipped | — | lịch job replay → G14 |
 | G08 | VTP sandbox / dev E2E | BLOCKED_EXTERNAL_CREDENTIAL | — | — | — | — | — | R-001 | chủ dự án cấp credential dev |
 | G09 | Shipment management / operational API | **PASS — MERGED** (merge `e828265`) | `feature/g09-operations` | #12 (issue #11) | `03231f7387cc` | PR run 36532374574 success; sau merge `develop` run 36532818524 success | SQLite 352 passed; PG16 468 passed / 1 skipped | — | — |
-| G10 | COD / fee / reconciliation foundation | IN PROGRESS — sửa sau verifier | `feature/g10-finance` | #14 (issue #13) | xem PR | lần 1 (`d1eee6a`) success; verifier FAIL (1 HIGH) → đã sửa | SQLite 363 passed; SQLite+PG16 cục bộ 490 passed / 1 skipped | R-011 (quy tắc kế toán, không chặn nền) | CI → verifier lại → cổng merge |
-| G11 | Retry / resilience / observability | OPEN | — | — | — | — | — | — | — |
+| G10 | COD / fee / reconciliation foundation | **PASS — MERGED** (merge `7acc3ba`) | `feature/g10-finance` | #14 (issue #13) | `c46def5e6fda` | PR run 36533633680 success; sau merge `develop` run 36533838889 success | SQLite 363 passed; PG16 490 passed / 1 skipped | R-011 (quy tắc kế toán) | — |
+| G11 | Retry / resilience / observability | IN PROGRESS | `feature/g11-resilience` | (mở) | xem PR | chờ | SQLite 378 passed; SQLite+PG16 cục bộ 507 passed / 1 skipped | — | CI → verifier → cổng merge |
 | G12 | Security hardening | OPEN | — | — | — | — | — | — | — |
 | G13 | PostgreSQL integration verification | PARTIAL (job CI PG kéo sớm ở G05, D-016) | — | — | — | — | — | — | — |
 | G14 | Staging preparation | OPEN | — | — | — | — | — | — | — |

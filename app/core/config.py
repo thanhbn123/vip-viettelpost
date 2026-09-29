@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     vtp_webhook_timezone: str | None = None
     webhook_max_body_bytes: int = 64 * 1024
 
+    # G11 observability / resilience
+    log_level: str = "INFO"
+    log_format: str = "text"  # "text" | "json"
+    provider_retry_max_attempts: int = 3  # read-only provider calls only (D-031)
+    provider_retry_base_delay: float = 0.2
+    provider_retry_max_delay: float = 2.0
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
