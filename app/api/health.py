@@ -24,16 +24,21 @@ def expected_head() -> str:
 
 def readiness_checks(engine=None) -> dict[str, dict]:
     checks: dict[str, dict] = {}
+    head = expected_head()
     try:
         with (engine or get_engine()).connect() as conn:
             conn.execute(text("SELECT 1"))
-            current = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        head = expected_head()
-        checks["database"] = {"ok": True}
-        checks["migrations"] = {"ok": current == head, "current": current, "expected": head}
+            checks["database"] = {"ok": True}
+            try:
+                current = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+            except Exception as exc:  # reachable but never migrated
+                current = None
+                checks["migrations"] = {"ok": False, "expected": head, "error": type(exc).__name__}
+            else:
+                checks["migrations"] = {"ok": current == head, "current": current, "expected": head}
     except Exception as exc:  # report, do not raise: readiness must answer
         checks["database"] = {"ok": False, "error": type(exc).__name__}
-        checks["migrations"] = {"ok": False}
+        checks["migrations"] = {"ok": False, "expected": head}
     checks["webhook_secret"] = {"ok": bool(settings.webhook_shared_secret)}
     checks["provider_credentials"] = {
         "ok": bool(settings.vtp_token or (settings.vtp_username and settings.vtp_password))
