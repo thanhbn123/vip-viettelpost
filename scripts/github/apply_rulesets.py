@@ -78,10 +78,9 @@ def main(argv: list[str] | None = None) -> int:
         json.loads(p.read_text())["name"]: json.loads(p.read_text())
         for p in sorted(RULESETS_DIR.glob("*.json"))
     }
-    existing = {
-        r["name"]: r["id"]
-        for r in gh("--paginate", f"repos/{args.repo}/rulesets?per_page=100") or []
-    }
+    # --paginate emits one JSON array per page; --slurp wraps them in an outer array.
+    pages = gh("--paginate", "--slurp", f"repos/{args.repo}/rulesets?per_page=100") or []
+    existing = {r["name"]: r["id"] for page in pages for r in page}
     for name in sorted(set(existing) - set(wanted)):
         print(f"NOTE     ruleset '{name}' exists on GitHub but not in the repo (left as is)")
     for name, body in wanted.items():
