@@ -1,6 +1,7 @@
 """The committed rulesets encode the agreed baseline (CR-STG-002)."""
 
 import json
+import re
 from pathlib import Path
 
 DIR = Path(__file__).resolve().parents[2] / ".github" / "rulesets"
@@ -40,6 +41,38 @@ def test_deploy_staging_baseline():
 
 
 def test_required_checks_match_ci_job_ids():
+    """Check-run names are the job ids (no ``name:`` key on any job)."""
     ci = (DIR.parent / "workflows" / "ci.yml").read_text()
-    for job in CI_JOBS - {"rehearsal"}:
-        assert f"\n  {job}:" in ci
+    jobs_block = ci.split("\njobs:\n", 1)[1]
+    job_ids = re.findall(r"^  ([A-Za-z0-9_-]+):$", jobs_block, re.M)
+    assert CI_JOBS <= set(job_ids)
+    assert not re.search(r"^    name:", jobs_block, re.M), "a job 'name:' would rename its check"
+
+
+def test_drift_ignores_server_defaults_but_sees_real_changes():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "apply_rulesets", DIR.parents[1] / "scripts" / "github" / "apply_rulesets.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    wanted = load("develop.json")
+    declared = {k: wanted[k] for k in mod.COMPARE_KEYS}
+    server = json.loads(json.dumps(wanted))
+    server.update({"id": 1, "source": "thanhbn123/vip-viettelpost"})
+    for rule in server["rules"]:
+        if rule["type"] == "required_status_checks":
+            rule["parameters"]["do_not_enforce_on_create"] = False
+            rule["parameters"]["required_status_checks"].reverse()
+        if rule["type"] == "pull_request":
+            rule["parameters"]["allowed_merge_methods"] = ["merge", "squash", "rebase"]
+    server["rules"].reverse()
+    assert mod.declared_diff(declared, server) == []
+    without_deletion = {**server, "rules": [r for r in server["rules"] if r["type"] != "deletion"]}
+    assert mod.declared_diff(declared, without_deletion) != []
+    weaker = json.loads(json.dumps(server))
+    for rule in weaker["rules"]:
+        if rule["type"] == "required_status_checks":
+            rule["parameters"]["required_status_checks"].pop()
+    assert mod.declared_diff(declared, weaker) != []
