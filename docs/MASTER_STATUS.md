@@ -2,8 +2,8 @@
 
 Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập nhật sau mỗi gate. Giờ theo +07:00.
 
-**Cập nhật lần cuối:** 2026-09-29 (G06 đã merge; G07 mở PR)
-**`main`:** `3b89b367cf3bd57ac6021645ff15ae37958898f7` · **`develop`:** `051e5354a11cf72018a20f00161b1f770ad54fbc` (sau merge PR #8)
+**Cập nhật lần cuối:** 2026-09-29 (G07 đã merge; G09 mở PR)
+**`main`:** `3b89b367cf3bd57ac6021645ff15ae37958898f7` · **`develop`:** `0fbdc2d37485ab90eb3b87d925a1c83f22caeb24` (sau merge PR #10)
 **Migration head:** `develop` = `shp_0003_active_order_guard`
 
 | Gate | Phạm vi | Trạng thái | Nhánh | PR | HEAD SHA | CI | Tests | Blockers | Việc kế tiếp |
@@ -15,9 +15,9 @@ Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập
 | G04 | Database / migrations | PASS — MERGED qua PR #6 | `feature/shp-database` | #4 | `4df8ce7b699b` | success | 49 passed | — | — |
 | G05 | Integration foundation | **PASS — MERGED** (merge `cc271b5`) | `integration/cr-shp-001` | #6 (issue #5) | `20f32b4a0630` | PR run 36528693788 success; sau merge `develop` run 36528952907 success | SQLite 290 passed; PG16 350 passed / 1 skipped | — | — |
 | G06 | Application service / REST API | **PASS — MERGED** (merge `051e535`) | `feature/g06-application-api` | #8 (issue #7) | `1bf3302a5c59` | PR run 36530437942 success; sau merge `develop` run 36530744508 success | SQLite 325 passed; PG16 414 passed / 1 skipped | — | — |
-| G07 | Durable webhook processing (nối vận đơn) | IN PROGRESS | `feature/g07-webhook-apply` | (mở) | xem PR | chờ | SQLite 340 passed; SQLite+PG16 cục bộ 444 passed / 1 skipped | — | CI → verifier → cổng merge |
+| G07 | Durable webhook processing (nối vận đơn) | **PASS — MERGED** (merge `0fbdc2d`) | `feature/g07-webhook-apply` | #10 (issue #9) | `f635fa2be261` | PR run 36531821878 success; sau merge `develop` run 36532096484 success | SQLite 344 passed; PG16 452 passed / 1 skipped | — | lịch job replay → G14 |
 | G08 | VTP sandbox / dev E2E | BLOCKED_EXTERNAL_CREDENTIAL | — | — | — | — | — | R-001 | chủ dự án cấp credential dev |
-| G09 | Shipment management / operational API | OPEN | — | — | — | — | — | — | — |
+| G09 | Shipment management / operational API | IN PROGRESS | `feature/g09-operations` | (mở) | xem PR | chờ | SQLite 352 passed; SQLite+PG16 cục bộ 468 passed / 1 skipped | — | CI → verifier → cổng merge |
 | G10 | COD / fee / reconciliation foundation | OPEN | — | — | — | — | — | — | — |
 | G11 | Retry / resilience / observability | OPEN | — | — | — | — | — | — | — |
 | G12 | Security hardening | OPEN | — | — | — | — | — | — | — |

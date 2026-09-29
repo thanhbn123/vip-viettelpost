@@ -315,9 +315,19 @@ class ShippingApplication:
             )
             if self._applier is not None:
                 # Provider webhooks can arrive before the tracking number is recorded.
-                replayed = self._applier.replay_unmatched(
-                    session, record.provider_id, result.tracking_number
-                )
+                # Isolated in a savepoint: a failing replay must not undo the record of a
+                # shipment that already exists at the carrier (verifier L2, PR #10); the
+                # replay job retries it later.
+                try:
+                    with session.begin_nested():
+                        replayed = self._applier.replay_unmatched(
+                            session, record.provider_id, result.tracking_number
+                        )
+                except Exception:
+                    replayed = 0
+                    logger.exception(
+                        "shipment %s: replay of early webhook events failed", shipment_id
+                    )
                 if replayed:
                     logger.info(
                         "shipment %s: applied %s early webhook event(s)", shipment_id, replayed

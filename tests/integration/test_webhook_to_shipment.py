@@ -8,7 +8,6 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from app.api.dependencies import get_application
 from app.db.models import Shipment as ShipmentRecord
 from app.db.models import ShipmentEvent as EventRecord
 from app.db.models import ShippingAuditLog, ShippingWebhookEvent
@@ -18,7 +17,6 @@ from app.main import app
 from app.providers.viettel_post.events import resolve_timezone, vtp_event_order_key
 from app.services.shipping_app import ShippingApplication
 from app.services.webhook_applier import WebhookShipmentApplier
-from app.webhooks.dependencies import get_vtp_webhook_processor
 from app.webhooks.processor import WebhookProcessor
 from app.webhooks.sql_sink import SqlWebhookSink
 from tests.integration.test_shipping_api import BASE, FakeProvider, create_body
@@ -90,23 +88,6 @@ class Env:
     def webhooks(self):
         with self.sessions() as s:
             return list(s.scalars(select(ShippingWebhookEvent).order_by(ShippingWebhookEvent.id)))
-
-
-@pytest.fixture
-def make_env(migrated_url):
-    envs = []
-
-    def build(**kwargs):
-        env = Env(migrated_url, **kwargs)
-        envs.append(env)
-        app.dependency_overrides[get_application] = lambda: env.app
-        app.dependency_overrides[get_vtp_webhook_processor] = lambda: env.processor
-        return env
-
-    yield build
-    app.dependency_overrides.clear()
-    for env in envs:
-        env.engine.dispose()
 
 
 @pytest.fixture
@@ -422,3 +403,37 @@ def test_unmatched_gauge(env, client):
     assert unmatched_with_shipment(env.sessions) == 1
     replay_pending(env.sessions, env.applier)
     assert unmatched_with_shipment(env.sessions) == 0
+
+
+def test_failing_early_event_replay_does_not_undo_the_create(env, client, monkeypatch):
+    client.post(HOOK, content=vtp(103, "29/09/2026 09:00:00"))  # arrives before the shipment
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("replay bug")
+
+    monkeypatch.setattr(env.applier, "replay_unmatched", broken)
+    sid = created(client)  # still 201: the shipment is recorded
+    assert env.shipment(sid).tracking_number == "TRK0001"
+    monkeypatch.undo()
+    from app.jobs.replay_webhooks import replay_pending
+
+    assert replay_pending(env.sessions, env.applier) == 1
+    assert env.shipment(sid).status == "READY_TO_PICK"
+
+
+def test_replay_job_continues_after_a_failing_key(env, client, monkeypatch):
+    from app.jobs.replay_webhooks import replay_pending
+
+    client.post(HOOK, content=vtp(200, "29/09/2026 10:00:00", number="BAD1"))
+    client.post(HOOK, content=vtp(200, "29/09/2026 10:00:00", number="TRK0001"))
+    sid = created(client)
+    original = env.applier.replay_unmatched
+
+    def flaky(session, provider_id, tracking):
+        if tracking == "BAD1":
+            raise RuntimeError("bad key")
+        return original(session, provider_id, tracking)
+
+    monkeypatch.setattr(env.applier, "replay_unmatched", flaky)
+    replay_pending(env.sessions, env.applier)  # must not raise
+    assert env.shipment(sid).status == "PICKED"
