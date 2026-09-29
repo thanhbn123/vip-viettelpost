@@ -57,6 +57,8 @@ def test_public_endpoints_stay_open(keyed):
     with TestClient(app) as client:
         assert client.get("/health").status_code == 200
         assert client.get("/health/ready").status_code in (200, 503)  # never 401
+        for path in ("/docs", "/redoc"):
+            assert client.get(path).status_code == 404  # not served at all
         webhook = client.post(f"{BASE}/webhooks/viettel-post", content=b"{}")
         # The webhook has its own TOKEN auth; the API-key layer never answers for it.
         assert webhook.json().get("error") != "unauthorized"
@@ -117,3 +119,71 @@ def test_database_errors_never_carry_sql_parameters(migrated_url):
             )
     engine.dispose()
     assert "0901234567" not in str(info.value)
+
+
+# --- verifier findings on PR #18 --------------------------------------------------------
+
+
+def _chunks(total, size=1024):
+    sent = 0
+    while sent < total:
+        yield b"x" * min(size, total - sent)
+        sent += size
+
+
+def test_chunked_body_without_content_length_is_limited_before_auth(keyed, monkeypatch):
+    monkeypatch.setattr(settings, "api_max_body_bytes", 1000)
+    with TestClient(app) as client:
+        # generator content -> Transfer-Encoding: chunked, no Content-Length; NO API key
+        unauthenticated = client.post(f"{BASE}/quote", content=_chunks(5000))
+        assert unauthenticated.status_code == 413
+        with_key = client.post(f"{BASE}/quote", content=_chunks(5000), headers={"X-API-Key": KEY})
+        assert with_key.status_code == 413
+        small = client.post(f"{BASE}/quote", content=_chunks(500), headers={"X-API-Key": KEY})
+        assert small.status_code == 422  # within limit: reaches validation
+
+
+def test_webhook_chunked_body_is_limited_too(keyed, monkeypatch):
+    monkeypatch.setattr(settings, "webhook_max_body_bytes", 1000)
+    with TestClient(app) as client:
+        r = client.post(f"{BASE}/webhooks/viettel-post", content=_chunks(5000))
+    assert r.status_code == 413
+
+
+def test_schema_and_docs_are_not_public(keyed):
+    with TestClient(app) as client:
+        assert client.get("/docs").status_code == 404
+        assert client.get("/redoc").status_code == 404
+        assert client.get("/openapi.json").status_code == 401
+        schema = client.get("/openapi.json", headers={"X-API-Key": KEY})
+        assert schema.status_code == 200 and "/api/v1/shipping/quote" in schema.json()["paths"]
+
+
+def test_malformed_api_keys_refuses_to_boot():
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ, "API_KEYS": "not-a-valid-entry"}
+    result = subprocess.run(
+        [sys.executable, "-c", "import app.main"], env=env, capture_output=True, text=True
+    )
+    assert result.returncode != 0 and "API_KEYS" in result.stderr
+
+
+def test_500_responses_carry_security_headers(keyed):
+    from app.api.dependencies import get_application
+
+    class Broken:
+        def get_shipment(self, shipment_id):
+            raise RuntimeError("boom")
+
+    app.dependency_overrides[get_application] = lambda: Broken()
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.get(f"{BASE}/shipments/1", headers={"X-API-Key": KEY})
+    finally:
+        app.dependency_overrides.pop(get_application, None)
+    assert r.status_code == 500
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+    assert r.headers["Cache-Control"] == "no-store"
