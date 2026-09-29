@@ -60,6 +60,8 @@ def test_no_credential_shaped_strings_in_tracked_files():
                     continue
                 if name == "secret assignment" and secret.startswith(("sqlite:", "$")):
                     continue
+                if secret.startswith("<") and secret.endswith(">"):
+                    continue  # documentation placeholder such as <pass>
                 findings.append(f"{path.relative_to(ROOT)}: {name}")
     assert findings == []
 
@@ -89,6 +91,7 @@ def test_tripwire_catches_what_it_should():
         "VTP" + "_PASSWORD=\nVTP" + "_TOKEN=": False,  # empty values must not span lines
         "postgresql+psycopg://ci:ci-only-throwaway@localhost/x": False,
         "DATABASE_URL=sqlite:///./vip_shipping.db": False,
+        "postgresql+psycopg://<user>:<pass>@<host>:5432/db": False,  # doc placeholder
         "WEBHOOK_SHARED_SECRET=": False,
     }
     for line, expected in samples.items():
@@ -99,6 +102,8 @@ def test_tripwire_catches_what_it_should():
                 if any(k in secret.lower() for k in FAKE_MARKERS):
                     continue
                 if secret.startswith(("sqlite:", "$")):
+                    continue
+                if secret.startswith("<") and secret.endswith(">"):
                     continue
                 hit = True
         assert hit is expected, line
