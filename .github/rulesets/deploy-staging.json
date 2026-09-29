@@ -1,0 +1,24 @@
+{
+  "name": "deploy-staging-baseline",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {"ref_name": {"include": ["refs/heads/deploy/staging"], "exclude": []}},
+  "bypass_actors": [],
+  "rules": [
+    {"type": "deletion"},
+    {"type": "non_fast_forward"},
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "required_status_checks": [
+          {"context": "lint", "integration_id": 15368},
+          {"context": "test", "integration_id": 15368},
+          {"context": "postgres", "integration_id": 15368},
+          {"context": "image", "integration_id": 15368},
+          {"context": "rehearsal", "integration_id": 15368}
+        ]
+      }
+    }
+  ]
+}
