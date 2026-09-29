@@ -48,3 +48,4 @@ Test hồi quy #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên m�
 | F7 | LOW | Đọc toàn bộ sự kiện cũ mỗi lần (O(n)) | Chấp nhận ở quy mô hiện tại |
 
 Test F1 và F3 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
+- Lần 2, HEAD `f635fa2`: 344 passed; 452 passed / 1 skipped. 60 phép thử race (retry `FAILED` trực tiếp × job replay, cả hai CSDL): mỗi sự kiện áp đúng 1 lần. **PASS** → merge PR #10 (`0fbdc2d`). Còn LOW L1 (job dừng cả lượt khi một khoá lỗi), L2 (replay trong luồng tạo không cô lập), L3 (thước đo bỏ sót `FAILED`/`RECEIVED`) → sửa ở PR G09, có test.
