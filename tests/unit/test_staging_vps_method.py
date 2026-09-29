@@ -30,7 +30,17 @@ while [ $i -lt ${#args[@]} ]; do
 done
 printf '%s\n' "$@" >> "$FAKE_STATE/ssh.argv"
 ls -l "$key" | cut -c1-10 >> "$FAKE_STATE/ssh.keymode"
-exec bash -c "${args[$((i+2))]}"
+# The remote command runs under a POSIX login shell (dash on Ubuntu), like a real VPS.
+exec sh -c "${args[$((i+2))]}"
+"""
+
+FAKE_BASE64 = r"""#!/bin/bash
+# Pass-through base64 that can simulate a broken or empty decode on the "VPS".
+case "$*" in *-d*)
+  [ -n "${FAKE_BASE64_DECODE_FAIL:-}" ] && { echo "base64: invalid input" >&2; exit 1; }
+  [ -n "${FAKE_BASE64_DECODE_EMPTY:-}" ] && { cat >/dev/null; exit 0; }
+esac
+exec /usr/bin/base64 "$@"
 """
 
 FAKE_DOCKER = r"""#!/bin/bash
@@ -114,6 +124,7 @@ def stg(tmp_path):
         "ssh": FAKE_SSH,
         "docker": FAKE_DOCKER,
         "curl": FAKE_CURL,
+        "base64": FAKE_BASE64,
         "id": '#!/bin/bash\necho "${FAKE_UID:-1000}"\n',
         "hostname": '#!/bin/bash\necho "${FAKE_HOSTNAME:-stg-box}"\n',
     }.items():
@@ -352,21 +363,20 @@ def test_rollback_after_acceptance_failure_restores_exact_previous_sha(stg):
     assert "downgrade" not in stg.log("docker.log")
 
 
-def test_explicit_rollback_sha_and_first_release_without_previous(stg):
+def test_first_release_without_previous_is_stopped_and_reported(stg):
     assert stg.deploy(SHA_A).returncode == 0
     rb = stg.run("rollback", SHA_A)
     assert rb.returncode != 0 and "ROLLBACK_NO_PREVIOUS_RELEASE" in rb.stderr
     assert stg.container() == ["stopped", SHA_A]
-    assert stg.deploy(SHA_B).returncode == 0
-    rb = stg.run("rollback", SHA_B, STAGING_ROLLBACK_SHA=SHA_A)
-    assert rb.returncode == 0 and stg.container() == ["running", SHA_A]
 
 
 def test_rollback_target_that_fails_attestation_is_reported(stg):
     assert stg.deploy(SHA_A).returncode == 0
     assert stg.deploy(SHA_B).returncode == 0
-    rb = stg.run("rollback", SHA_B, FAKE_HEALTH_FAIL_SHA=SHA_A)
-    assert rb.returncode != 0 and "ROLLBACK_FAILED" in rb.stderr
+    # e.g. B added a migration: A's readiness is 503 by design (schema ahead of A's head)
+    rb = stg.run("rollback", SHA_B, FAKE_READY_FAIL_SHA=SHA_A)
+    assert rb.returncode != 0 and "ROLLBACK_FAILED" in rb.stderr and "migration" in rb.stderr
+    assert stg.container() == ["running", SHA_B]  # the failed release is restored, job stays red
 
 
 # 15
@@ -396,3 +406,31 @@ def test_workflow_passes_vps_inputs_only_to_deploy_steps():
     head = wf.split("\n  deploy:\n", 1)[0]
     image_job = head.split("\n  image:\n", 1)[1].split("\n  vtp-dev-e2e:\n", 1)[0]
     assert "secrets." not in image_job
+
+
+# verifier PR #36 MED-1: a broken bootstrap on the VPS must never look like success
+@pytest.mark.parametrize("fault", ["FAKE_BASE64_DECODE_FAIL", "FAKE_BASE64_DECODE_EMPTY"])
+@pytest.mark.parametrize("phase", ["migrate", "start", "rollback"])
+def test_remote_bootstrap_failure_is_not_success(stg, fault, phase):
+    r = stg.run(phase, SHA_A, **{fault: "1"})
+    assert r.returncode == 97 and "REMOTE_BOOTSTRAP_FAILED" in r.stderr
+    assert stg.log("docker.log") == ""
+
+
+def test_host_network_requires_the_container_port(stg):
+    r = stg.run("migrate", SHA_A, STAGING_DOCKER_NETWORK="host", STAGING_APP_PORT="9000")
+    assert r.returncode == 2 and "STAGING_APP_PORT must be 8000" in r.stderr
+    assert stg.log("ssh.argv") == ""
+
+
+def test_live_lock_blocks_a_second_phase_and_stale_lock_is_taken_over(stg):
+    lock = stg.app / "state" / "lock"
+    lock.mkdir(parents=True)
+    (lock / "pid").write_text(str(os.getpid()))  # a live process holds it
+    r = stg.run("start", SHA_A)
+    assert r.returncode != 0 and "LOCKED" in r.stderr
+    assert "run" not in stg.log("docker.log")
+    dead = subprocess.run(["sh", "-c", "echo $$"], capture_output=True, text=True).stdout.strip()
+    (lock / "pid").write_text(dead)
+    assert stg.deploy(SHA_A).returncode == 0
+    assert not lock.exists()

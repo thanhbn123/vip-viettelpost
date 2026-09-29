@@ -18,7 +18,6 @@ port="${STG_PORT:-}"
 net="${STG_NETWORK:-bridge}"
 tools="${STG_PG_TOOLS_IMAGE:-postgres:16}"
 expected_host="${STG_EXPECTED_HOSTNAME:-}"
-rollback_to="${STG_ROLLBACK_SHA:-}"
 tries="${STG_READY_TRIES:-30}"
 pause="${STG_READY_SLEEP:-2}"
 
@@ -44,6 +43,23 @@ fi
 command -v docker >/dev/null 2>&1 || die "remote: docker is not installed or not on PATH" 1
 mkdir -p "$dir/env" "$dir/backups" "$dir/state"
 chmod 700 "$dir/env" "$dir/backups"
+
+# One phase at a time on this VPS: a cancelled run's orphaned remote phase (ssh gone, script
+# still running) must not interleave with the rollback step. A lock whose owner is dead is
+# stale and is taken over; a live owner makes this phase fail. `logs` only reads.
+if [ "$phase" != "logs" ]; then
+  lock="$dir/state/lock"
+  if ! mkdir "$lock" 2>/dev/null; then
+    owner="$(cat "$lock/pid" 2>/dev/null || true)"
+    if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+      die "LOCKED: another deploy phase (pid $owner) is still running on this VPS" 1
+    fi
+    rm -rf -- "$lock"
+    mkdir "$lock" || die "LOCKED: cannot take $lock" 1
+  fi
+  echo "$$" > "$lock/pid"
+  trap 'rm -rf -- "$lock"' EXIT
+fi
 
 netargs=(--network "$net")
 [ "$net" = "host" ] || netargs+=(--add-host=host.docker.internal:host-gateway)
@@ -102,8 +118,10 @@ start_release() {
   if docker run -d --name "$NEXT" --restart unless-stopped --label "vip.sha=$s" \
        "${netargs[@]}" --env-file "$envf" -p "127.0.0.1:${port}:8000" "$img" >/dev/null \
      && attest "$s"; then
-    if [ "$had_old" = 1 ]; then docker rm -f "$APP" >/dev/null; fi
-    docker rename "$NEXT" "$APP"
+    if [ "$had_old" = 1 ]; then
+      docker rm -f "$APP" >/dev/null || { echo "could not remove the previous container" >&2; return 1; }
+    fi
+    docker rename "$NEXT" "$APP" || { echo "could not rename $NEXT to $APP" >&2; return 1; }
     return 0
   fi
   echo "release $s did not pass health/readiness/SHA attestation; previous container restored" >&2
@@ -127,7 +145,7 @@ case "$phase" in
     docker load >/dev/null
     img="$(image_of "$sha")"
     got="$(docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$img" 2>/dev/null \
-      | sed -n 's/^APP_GIT_SHA=//p' | head -n 1)"
+      | sed -n 's/^APP_GIT_SHA=//p' | head -n 1)" || got=""
     [ "$got" = "$sha" ] || die "IMAGE_SHA_MISMATCH: $img carries APP_GIT_SHA='${got:-none}'" 1
     echo "image $img loaded (APP_GIT_SHA verified)"
     ;;
@@ -168,22 +186,21 @@ case "$phase" in
   rollback)
     docker rm -f "$NEXT" >/dev/null 2>&1 || true
     cur="$(read_state current_sha)"
-    target="$rollback_to"
-    if [ -z "$target" ]; then
-      if [ "$cur" != "$sha" ]; then
-        # start never made $sha current: the previous release is still the current one.
-        if docker container inspect "$APP" >/dev/null 2>&1; then docker start "$APP" >/dev/null; fi
-        echo "ROLLBACK_NOOP: $sha was never made current (current: ${cur:-none})"
-        exit 0
-      fi
-      target="$(read_state previous_sha)"
+    if [ "$cur" != "$sha" ]; then
+      # start never made $sha current: the previous release is still the current one.
+      if docker container inspect "$APP" >/dev/null 2>&1; then docker start "$APP" >/dev/null; fi
+      echo "ROLLBACK_NOOP: $sha was never made current (current: ${cur:-none})"
+      exit 0
     fi
+    target="$(read_state previous_sha)"
     if [ -z "$target" ]; then
       docker stop "$APP" >/dev/null 2>&1 || true
       die "ROLLBACK_NO_PREVIOUS_RELEASE: nothing known-good before $sha; the failed release was stopped" 1
     fi
     [[ "$target" =~ ^[0-9a-f]{40}$ ]] || die "remote: rollback target must be 40-hex" 2
-    start_release "$target" || die "ROLLBACK_FAILED: $target did not come back healthy on the exact SHA" 1
+    # /health/ready of $target is 503 whenever $sha's migration moved the schema past
+    # $target's head: that is expected, and rollback then fails (APPLICATION_ROLLBACK_ONLY).
+    start_release "$target" || die "ROLLBACK_FAILED: $target did not pass health/readiness/SHA. If $sha added a migration, the schema is ahead of $target (readiness 503 by design): a person must downgrade or restore from $dir/backups (docs/STAGING.md section 5). $sha was restored." 1
     write_state current_sha "$target"
     rm -f "$dir/state/previous_sha"
     echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) rollback $sha -> $target" >> "$dir/state/history.log"

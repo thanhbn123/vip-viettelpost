@@ -9,7 +9,7 @@
 #   secrets   STAGING_SSH_HOST, STAGING_SSH_USER, STAGING_SSH_PRIVATE_KEY, STAGING_SSH_KNOWN_HOSTS
 #   variables STAGING_APP_DIR (absolute), optional STAGING_SSH_PORT (22), STAGING_APP_PORT (8000),
 #             STAGING_EXPECTED_HOSTNAME, STAGING_HOST_DENYLIST (comma list), STAGING_DOCKER_NETWORK
-#             (bridge), STAGING_PG_TOOLS_IMAGE (postgres:16), STAGING_ROLLBACK_SHA (rollback only)
+#             (bridge; "host" requires STAGING_APP_PORT=8000), STAGING_PG_TOOLS_IMAGE (postgres:16)
 #   from the dispatcher: STAGING_SHA, STAGING_IMAGE_ARCHIVE, STAGING_ENV_FILE
 # Fails closed: any missing input, guard or remote failure exits non-zero.
 set -euo pipefail
@@ -28,7 +28,6 @@ app_port="${STAGING_APP_PORT:-8000}"
 net="${STAGING_DOCKER_NETWORK:-bridge}"
 tools="${STAGING_PG_TOOLS_IMAGE:-postgres:16}"
 expected_host="${STAGING_EXPECTED_HOSTNAME:-}"
-rollback_to="${STAGING_ROLLBACK_SHA:-}"
 tries="${STAGING_READY_TRIES:-30}"
 pause="${STAGING_READY_SLEEP:-2}"
 
@@ -57,7 +56,9 @@ case "$dir/" in */./*|*/../*) fail "STAGING_APP_DIR must not contain . or .. com
 case "$tools" in *:latest|*:latest@*) fail "STAGING_PG_TOOLS_IMAGE must not use the 'latest' tag" 2;; esac
 [ -z "$expected_host" ] || [[ "$expected_host" =~ ^[A-Za-z0-9.-]{1,253}$ ]] \
   || fail "STAGING_EXPECTED_HOSTNAME is not a hostname" 2
-[ -z "$rollback_to" ] || [[ "$rollback_to" =~ ^[0-9a-f]{40}$ ]] || fail "STAGING_ROLLBACK_SHA must be 40-hex" 2
+if [ "$net" = "host" ] && [ "$app_port" != "8000" ]; then
+  fail "STAGING_DOCKER_NETWORK=host publishes no port: the app listens on 8000, so STAGING_APP_PORT must be 8000" 2
+fi
 [[ "$tries" =~ ^[0-9]{1,3}$ ]] && [[ "$pause" =~ ^[0-9]{1,3}$ ]] || fail "bad readiness retry settings" 2
 
 # Production guard: the owner lists production hosts/IPs; any match stops before connecting.
@@ -83,10 +84,13 @@ payload="$(base64 < "$remote_script" | tr -d '\n')"
 
 # Every value on the remote command line was validated above; secrets travel only on stdin.
 remote() {  # remote <phase>   (stdin is forwarded)
-  local cmd="STG_DIR=$dir STG_PORT=$app_port STG_NETWORK=$net STG_PG_TOOLS_IMAGE=$tools"
-  cmd+=" STG_EXPECTED_HOSTNAME=$expected_host STG_ROLLBACK_SHA=$rollback_to"
-  cmd+=" STG_READY_TRIES=$tries STG_READY_SLEEP=$pause"
-  cmd+=" bash -c \"\$(printf %s '$payload' | base64 -d)\" vip-remote $1 $STAGING_SHA"
+  local vars="STG_DIR=$dir STG_PORT=$app_port STG_NETWORK=$net STG_PG_TOOLS_IMAGE=$tools"
+  vars+=" STG_EXPECTED_HOSTNAME=$expected_host STG_READY_TRIES=$tries STG_READY_SLEEP=$pause"
+  # Runs under the deploy user's login shell (often dash, no pipefail): a failed or empty
+  # decode must not turn into `bash -c ""` = exit 0 (verifier PR #36 MED-1).
+  local cmd="s=\"\$(printf %s '$payload' | base64 -d)\" && [ -n \"\$s\" ]"
+  cmd+=" && exec env $vars bash -c \"\$s\" vip-remote $1 $STAGING_SHA"
+  cmd+="; echo REMOTE_BOOTSTRAP_FAILED >&2; exit 97"
   ssh -i "$tmp/key" -p "$ssh_port" \
     -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
     -o UserKnownHostsFile="$tmp/known_hosts" -o GlobalKnownHostsFile=/dev/null \
