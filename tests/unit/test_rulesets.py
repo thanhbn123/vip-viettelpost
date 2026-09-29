@@ -76,3 +76,6 @@ def test_drift_ignores_server_defaults_but_sees_real_changes():
         if rule["type"] == "required_status_checks":
             rule["parameters"]["required_status_checks"].pop()
     assert mod.declared_diff(declared, weaker) != []
+    # A rule added on the server only (e.g. someone adds "creation" in the UI) is drift too.
+    extra = {**server, "rules": [*server["rules"], {"type": "creation"}]}
+    assert "/rules (rule types)" in mod.declared_diff(declared, extra)
