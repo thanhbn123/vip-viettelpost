@@ -73,5 +73,20 @@ def test_g08_accepts_username_password_pair(tmp_path):
     assert preflight.check(env, "g08")["ok"] is False
 
 
-def test_no_method_is_implemented_yet():
-    assert preflight.implemented_methods() == []
+def test_vps_is_the_only_implemented_method():
+    assert preflight.implemented_methods() == ["vps"]
+
+
+def test_vps_method_needs_its_ssh_inputs(capsys):
+    env = {
+        **ALL_SECRETS,
+        "STAGING_BASE_URL": "https://s.example.test",
+        "STAGING_DEPLOY_METHOD": "vps",
+    }
+    result = preflight.check(env, "g15")
+    names = " ".join(result["missing"])
+    for n in (*preflight.METHOD_REQUIREMENTS["vps"]["secrets"], "STAGING_APP_DIR"):
+        assert n in names
+    env.update({f"HAS_{n}": "true" for n in preflight.METHOD_REQUIREMENTS["vps"]["secrets"]})
+    env["STAGING_APP_DIR"] = "/srv/vip-staging"
+    assert preflight.check(env, "g15")["ok"] is True
