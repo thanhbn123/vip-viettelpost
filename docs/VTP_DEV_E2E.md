@@ -21,8 +21,8 @@ Trạng thái: **`BLOCKED_EXTERNAL_CREDENTIAL`** — chưa có credential dev (�
 |---|---|---|---|---|
 | 1 | authenticate | Login + ownerconnect (hoặc token tĩnh) | Không (chỉ cấp token) | chạy |
 | 2 | get services | `POST /v2/order/getPriceAll` | Không | chạy |
-| 3 | calculate fee | `POST /v2/order/getPrice` | Không | chạy (dịch vụ từ kịch bản hoặc dịch vụ đầu tiên của bước 2) |
-| 4 | create shipment | `POST /v2/order/createOrder` | **Có — một đơn thử ở VTP dev** | **không** chạy trừ khi `--create` **và** `VTP_E2E_ALLOW_CREATE=yes`; cần `order_payment` trong kịch bản (D-BIZ-001) |
+| 3 | calculate fee | `POST /v2/order/getPrice` | Không | chạy (dịch vụ từ kịch bản hoặc dịch vụ đầu tiên của bước 2). Bước 2 trả rỗng → FAIL; bước 3 bị bỏ qua → run **không** đạt |
+| 4 | create shipment | `POST /v2/order/createOrder` | **Có — một đơn thử ở VTP dev** | **không** chạy trừ khi `--create` **và** `VTP_E2E_ALLOW_CREATE=yes` **và** bước 1–3 đều PASS; cần `order_payment` trong kịch bản (D-BIZ-001) |
 | 5 | cancel shipment | `POST /v2/order/UpdateOrder` `TYPE=4` | Đưa đơn thử về huỷ | tự chạy ngay sau bước 4 |
 | 6 | webhook | VTP dev gọi `https://<staging>/api/v1/shipping/webhooks/viettel-post` | — | chỉ khi staging có URL công khai và đã đăng ký với VTP (G15) |
 
@@ -35,8 +35,8 @@ File JSON (`--evidence`, workflow đưa vào job summary): URL gốc, giờ bắ
 Mỗi yêu cầu ≤ `VTP_TIMEOUT_SECONDS` (20 s). Script **không** thử lại bước nào (kể cả chỉ-đọc) để bằng chứng phản ánh đúng một lần gọi; tạo/huỷ không bao giờ tự thử lại (D-023, D-031). Lỗi token → adapter làm mới **một lần** nếu dùng username/password.
 
 ## Chạy
-- Qua workflow `staging.yml`: đẩy `deploy/staging` tới một commit của `develop` với var `RUN_VTP_DEV_E2E=true` (thêm `VTP_E2E_CREATE_TEST_ORDER=yes` + `VTP_E2E_ALLOW_CREATE=yes` nếu đã duyệt tạo đơn thử); hoặc *Run workflow* khi file đã có trên `main`. Credential lấy từ Environment `staging`, job cần người duyệt.
-- Tại máy tin cậy: nạp biến bằng `read` không vang (không để trong lịch sử shell), rồi `python scripts/vtp_dev_e2e.py [--create]`.
+- Qua workflow `staging.yml`: đẩy `deploy/staging` tới một commit của `develop` với var `RUN_VTP_DEV_E2E=true` (thêm `VTP_E2E_CREATE_TEST_ORDER=yes` + `VTP_E2E_ALLOW_CREATE=yes` nếu đã duyệt tạo đơn thử); hoặc *Run workflow* khi file đã có trên `main` (chọn *Use workflow from: `develop`*). Credential lấy từ Environment `staging`, job cần người duyệt.
+- Tại máy tin cậy, **từ thư mục gốc repo**: nạp biến bằng `read` không vang (không để trong lịch sử shell), rồi `python -m scripts.vtp_dev_e2e [--create]` (chạy dạng module để `app` import được).
 
 ## Test
-`tests/unit/test_vtp_dev_e2e_script.py` (HTTP giả lập): từ chối URL production mà không gửi gì; thiếu credential → BLOCKED; mặc định không tạo đơn; tạo cần cả cờ và biến cho phép; tạo xong huỷ ngay; bước lỗi được ghi, không làm dừng báo cáo; token và SĐT không xuất hiện trong đầu ra.
+`tests/unit/test_vtp_dev_e2e_script.py` (HTTP giả lập; kèm test chạy **đúng lệnh** `python -m scripts.vtp_dev_e2e` bằng subprocess): từ chối URL production mà không gửi gì; thiếu credential → BLOCKED; mặc định không tạo đơn; tạo cần cả cờ và biến cho phép; tạo xong huỷ ngay; bước lỗi được ghi, không làm dừng báo cáo; token và SĐT không xuất hiện trong đầu ra.

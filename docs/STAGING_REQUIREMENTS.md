@@ -1,6 +1,6 @@
 # STAGING REQUIREMENTS — những gì cần có để chạy G08 và G15
 
-**Đo 2026-09-29** (`develop` `d580cc353605e4705995c25308e0bbf84df54daa`): repo có 0 GitHub Environment, 0 secret, 0 variable; không tài liệu/issue nào chỉ định máy staging → **`STAGING_TARGET_MISSING`**, **`BLOCKED_EXTERNAL_CREDENTIAL`**. Mọi thứ phía mã đã sẵn: ảnh Docker, migration, runbook (`STAGING.md`), smoke test, workflow `staging.yml`, script `vtp_dev_e2e.py`.
+**Đo 2026-09-29** (`develop` `d580cc353605e4705995c25308e0bbf84df54daa`): trước khi làm repo có 0 GitHub Environment, 0 secret, 0 variable (sau đó Environment `staging` được tạo **rỗng**, vẫn 0 secret/variable); không tài liệu/issue nào chỉ định máy staging → **`STAGING_TARGET_MISSING`**, **`BLOCKED_EXTERNAL_CREDENTIAL`**. Mọi thứ phía mã đã sẵn: ảnh Docker, migration, runbook (`STAGING.md`), smoke test, workflow `staging.yml`, script `vtp_dev_e2e.py`.
 
 ## 1. Compute / runtime
 - Máy/nền tảng chạy **container Linux x86_64 hoặc arm64**, Docker (hoặc tương đương) chạy được ảnh từ `Dockerfile` (Python 3.11-slim, uid 10001, cổng 8000).
@@ -25,7 +25,7 @@
 - VTP không công bố dải IP gọi đến → chưa lọc được IP.
 
 ## 5. GitHub Environment
-- Tên: **`staging`**; deployment branch: chỉ `develop`; required reviewer: chủ dự án (`GITHUB_ENVIRONMENT_STAGING.md` §C).
+- Tên: **`staging`**; deployment branches: `develop` và `deploy/staging`; required reviewer: chủ dự án (`GITHUB_ENVIRONMENT_STAGING.md` §C).
 
 ## 6. GitHub Secrets (Environment `staging`)
 REQUIRED SECRET: `DATABASE_URL`, `WEBHOOK_SHARED_SECRET`, `API_KEYS`, `SMOKE_API_KEY`, và **một trong hai**: `VTP_TOKEN` **hoặc** (`VTP_USERNAME` + `VTP_PASSWORD`).
@@ -33,8 +33,8 @@ OPTIONAL SECRET: `DATABASE_URL_PSQL` (chỉ nếu sao lưu chạy từ Actions);
 Chi tiết từng biến: `GITHUB_ENVIRONMENT_STAGING.md`.
 
 ## 7. Non-secret variables
-REQUIRED: `VTP_BASE_URL=https://partnerdev.viettelpost.vn`, `STAGING_BASE_URL`, `STAGING_DEPLOY_METHOD`; cho G08: `VTP_E2E_SCENARIO_JSON`.
-OPTIONAL: `VTP_TIMEOUT_SECONDS`, `VTP_WEBHOOK_TIMEZONE` (để trống), `WEBHOOK_MAX_BODY_BYTES`, `API_MAX_BODY_BYTES`, `DB_CONNECT_TIMEOUT_SECONDS`, `LOG_LEVEL`, `LOG_FORMAT` (`json`), `PROVIDER_RETRY_*`, `APP_ENV`, `VTP_E2E_ALLOW_CREATE`.
+REQUIRED: `STAGING_BASE_URL`, `STAGING_DEPLOY_METHOD`; cho G08: `VTP_E2E_SCENARIO_JSON`.
+OPTIONAL: `VTP_BASE_URL` (nếu đặt phải là URL dev), `VTP_TIMEOUT_SECONDS`, `VTP_WEBHOOK_TIMEZONE` (để trống), `WEBHOOK_MAX_BODY_BYTES`, `API_MAX_BODY_BYTES`, `DB_CONNECT_TIMEOUT_SECONDS`, `LOG_LEVEL`, `LOG_FORMAT` (`json`), `PROVIDER_RETRY_*`, `APP_ENV`, `RUN_VTP_DEV_E2E`, `VTP_E2E_ALLOW_CREATE`, `VTP_E2E_CREATE_TEST_ORDER`.
 
 ## 8. Migration
 `STAGING.md` §4 (chạy dạng file; sao lưu + `pg_restore --list`; `alembic upgrade head`; kỳ vọng `shp_0004_shipments_created_index (head)`). Workflow `staging.yml` kiểm trước: đúng một head.
@@ -57,4 +57,5 @@ OPTIONAL: `VTP_TIMEOUT_SECONDS`, `VTP_WEBHOOK_TIMEZONE` (để trống), `WEBHOO
 3. Cấp PostgreSQL 16 staging (host, port, db, user) → đặt `DATABASE_URL`.
 4. Cấp credential VTP **development** → `VTP_TOKEN` hoặc `VTP_USERNAME`/`VTP_PASSWORD`; gửi địa chỉ thử + ID địa danh → `VTP_E2E_SCENARIO_JSON`.
 5. Đăng ký URL webhook staging với VTP dev + `WEBHOOK_SHARED_SECRET`.
-6. Quyết định mở (không chặn staging, chặn production): `DECISIONS.md` mục "Quyết định còn mở".
+6. Quyết định mở (không chặn staging, chặn production): `DECISIONS.md` mục "Quyết định còn mở"; riêng D-BIZ-001 (`order_payment`) cần có trước bước tạo đơn thử của G08.
+7. Khuyến nghị: ruleset cho `develop` và `deploy/staging` (chỉ chủ dự án được cập nhật, không force push) — hiện repo PUBLIC và không có bảo vệ nhánh nào.

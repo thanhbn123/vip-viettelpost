@@ -1,6 +1,6 @@
 # GitHub Environment `staging` — danh mục biến
 
-Tên biến lấy **từ code** (`app/core/config.py` — pydantic-settings, không phân biệt hoa/thường; `migrations/env.py`; `scripts/smoke_test.py`; `scripts/vtp_dev_e2e.py`; `.github/workflows/staging.yml`). Không có giá trị thật nào trong tài liệu này. Đo ngày 2026-09-29: repo **chưa** có Environment, secret hay variable nào.
+Tên biến lấy **từ code** (`app/core/config.py` — pydantic-settings, không phân biệt hoa/thường; `migrations/env.py`; `scripts/smoke_test.py`; `scripts/vtp_dev_e2e.py`; `.github/workflows/staging.yml`). Không có giá trị thật nào trong tài liệu này. Đo ngày 2026-09-29 trước khi làm: repo chưa có Environment, secret hay variable nào; sau đó Environment `staging` được tạo **rỗng** (§C) — vẫn 0 secret, 0 variable.
 
 **Cách thêm:** GitHub → repo → *Settings → Environments → staging* → *Environment secrets* / *Environment variables*. **Không** gửi giá trị qua chat, email, issue hay commit.
 
@@ -16,7 +16,7 @@ Chú thích cột: **TYPE** = SECRET (Environment secret) / VAR (Environment var
 | `VTP_TOKEN` | SECRET | ONE-OF (hoặc cặp dưới) | Token Partner **development** dùng nguyên (không tự làm mới) | Viettel Post cấp (môi trường dev) | Theo hạn VTP (ownerconnect: tài liệu ghi 1 năm) | Có | **Không** | không có |
 | `VTP_USERNAME` | SECRET | ONE-OF (cùng `VTP_PASSWORD`) | Tài khoản Partner **development**; app gọi `Login` rồi `ownerconnect` | Viettel Post cấp | Theo chính sách VTP | Có | **Không** | không có |
 | `VTP_PASSWORD` | SECRET | ONE-OF (cùng `VTP_USERNAME`) | Mật khẩu tài khoản trên | Viettel Post cấp | Theo chính sách VTP | Có | **Không** | không có |
-| `VTP_BASE_URL` | VAR | REQUIRED (đặt tường minh) | Phải là `https://partnerdev.viettelpost.vn`; workflow từ chối giá trị khác | Hằng số (tài liệu VTP) | Không | Có | Có | `https://partnerdev.viettelpost.vn` |
+| `VTP_BASE_URL` | VAR | OPTIONAL (khuyên đặt tường minh) | Nếu đặt thì phải là `https://partnerdev.viettelpost.vn` — workflow từ chối giá trị khác; để trống thì code dùng đúng URL dev | Hằng số (tài liệu VTP) | Không | Có | Có | `https://partnerdev.viettelpost.vn` |
 | `VTP_TIMEOUT_SECONDS` | VAR | OPTIONAL | Timeout mỗi yêu cầu tới VTP | — | — | Có | Có | `20` |
 | `VTP_WEBHOOK_TIMEZONE` | VAR | OPTIONAL — **để trống** | Múi giờ `ORDER_STATUSDATE`; chỉ đặt sau khi VTP xác nhận (D-VTP-001) | Viettel Post | — | Có | Có | trống |
 | `WEBHOOK_MAX_BODY_BYTES` | VAR | OPTIONAL | Giới hạn thân webhook | — | — | Có | Có | `65536` |
@@ -47,4 +47,6 @@ Tên **không** tồn tại trong code và không được thêm: `VTP_API_KEY`,
 
 - *Deployment branches*: `develop` và `deploy/staging` (workflow còn tự kiểm SHA nằm trong `develop`). **Đã tạo 2026-09-29**: Environment `staging` rỗng (0 secret, 0 variable), required reviewer = `thanhbn123`, branch policy = `develop`, `deploy/staging`.
 - *Required reviewers*: chủ dự án — mỗi lần chạy job dùng Environment `staging` phải được duyệt.
+- Người duyệt là chủ dự án và được tự duyệt lần chạy của chính mình (`prevent_self_review=false`, admin được bỏ qua) — phù hợp khi chỉ có một người, cần xem lại khi thêm người.
+- **Cổng thật sự là bước duyệt**: kiểm "SHA thuộc `develop`" nằm trong chính file workflow của commit được đẩy, nên ai có quyền ghi đều có thể đẩy commit sửa workflow lên `deploy/staging`. Hiện chỉ chủ dự án có quyền ghi; repo chưa có ruleset/bảo vệ nhánh → khuyến nghị chủ dự án đặt ruleset cho `develop` và `deploy/staging` (xem `STAGING_REQUIREMENTS.md` §12).
 - Không tạo Environment `production` trong phạm vi CR-SHP-001.

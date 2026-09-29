@@ -33,8 +33,12 @@ ROUTES = {
 def env(tmp_path, **extra):
     path = tmp_path / "scenario.json"
     path.write_text(json.dumps(SCENARIO))
-    return {"VTP_BASE_URL": VTP_DEV_BASE_URL, "VTP_TOKEN": TOKEN,
-            "VTP_E2E_SCENARIO": str(path), **extra}
+    return {
+        "VTP_BASE_URL": VTP_DEV_BASE_URL,
+        "VTP_TOKEN": TOKEN,
+        "VTP_E2E_SCENARIO": str(path),
+        **extra,
+    }
 
 
 def run(tmp_path, argv, environ, recorder=None):
@@ -64,8 +68,13 @@ def test_read_only_by_default(tmp_path, capsys):
     code, evidence = run(tmp_path, [], env(tmp_path), recorder)
     assert code == e2e.EXIT_OK
     status = {s["name"]: s["status"] for s in evidence["steps"]}
-    assert status == {"authenticate": "PASS", "get_services": "PASS", "calculate_fee": "PASS",
-                      "create_shipment": "NOT_SAFE", "cancel_shipment": "SKIPPED"}
+    assert status == {
+        "authenticate": "PASS",
+        "get_services": "PASS",
+        "calculate_fee": "PASS",
+        "create_shipment": "NOT_SAFE",
+        "cancel_shipment": "SKIPPED",
+    }
     paths = {r.url.path for r in recorder.requests}
     assert mapping.CREATE_ORDER_PATH not in paths and mapping.UPDATE_ORDER_STATUS_PATH not in paths
     out = capsys.readouterr().out + json.dumps(evidence)
@@ -82,13 +91,16 @@ def test_create_needs_flag_and_allow(tmp_path):
 
 def test_create_then_cancel_when_authorised(tmp_path):
     recorder = Recorder(ROUTES)
-    code, evidence = run(tmp_path, ["--create"], env(tmp_path, VTP_E2E_ALLOW_CREATE="yes"),
-                         recorder)
+    code, evidence = run(
+        tmp_path, ["--create"], env(tmp_path, VTP_E2E_ALLOW_CREATE="yes"), recorder
+    )
     assert code == e2e.EXIT_OK
     steps = {s["name"]: s for s in evidence["steps"]}
     assert steps["create_shipment"]["evidence"]["tracking_number"] == "15878180012"
-    assert steps["cancel_shipment"]["evidence"] == {"tracking_number": "15878180012",
-                                                    "cancelled": True}
+    assert steps["cancel_shipment"]["evidence"] == {
+        "tracking_number": "15878180012",
+        "cancelled": True,
+    }
     assert [r.url.path for r in recorder.requests][-1] == mapping.UPDATE_ORDER_STATUS_PATH
 
 
@@ -103,3 +115,75 @@ def test_failed_step_is_reported_not_raised(tmp_path):
 def test_bad_scenario_is_refused(tmp_path):
     code, _ = run(tmp_path, [], {**env(tmp_path), "VTP_E2E_SCENARIO": str(tmp_path / "nope")})
     assert code == e2e.EXIT_REFUSED
+
+
+# --- verifier findings on PR #25 --------------------------------------------------------
+
+
+def _exact_command(args, extra_env):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    clean = {k: v for k, v in os.environ.items() if not k.startswith("VTP_")}
+    return subprocess.run(
+        [sys.executable, *args],
+        cwd=root,
+        env={**clean, **extra_env},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+def test_workflow_command_runs_and_is_blocked_without_credentials():
+    """The exact command used by staging.yml (module form) must import and exit 3."""
+    result = _exact_command(["-m", "scripts.vtp_dev_e2e"], {})
+    assert result.returncode == e2e.EXIT_BLOCKED, result.stderr
+    assert "BLOCKED_EXTERNAL_CREDENTIAL" in result.stdout
+
+
+def test_workflow_command_refuses_production():
+    result = _exact_command(
+        ["-m", "scripts.vtp_dev_e2e"], {"VTP_BASE_URL": VTP_PRODUCTION_BASE_URL, "VTP_TOKEN": TOKEN}
+    )
+    assert result.returncode == e2e.EXIT_REFUSED, result.stderr
+
+
+def test_smoke_script_command_runs():
+    result = _exact_command(["scripts/smoke_test.py"], {})
+    assert result.returncode == 2 and "SMOKE_BASE_URL" in result.stderr
+
+
+def test_empty_services_is_a_failure_and_blocks_create(tmp_path):
+    routes = {**ROUTES, mapping.GET_SERVICES_PATH: respond([])}
+    recorder = Recorder(routes)
+    code, evidence = run(
+        tmp_path, ["--create"], env(tmp_path, VTP_E2E_ALLOW_CREATE="yes"), recorder
+    )
+    assert code == e2e.EXIT_FAIL
+    status = {s["name"]: s["status"] for s in evidence["steps"]}
+    assert status["get_services"] == "FAIL" and status["create_shipment"] == "SKIPPED"
+    assert mapping.CREATE_ORDER_PATH not in {r.url.path for r in recorder.requests}
+
+
+def test_create_evidence_has_no_personal_data(tmp_path, capsys):
+    code, evidence = run(
+        tmp_path, ["--create"], env(tmp_path, VTP_E2E_ALLOW_CREATE="yes"), Recorder(ROUTES)
+    )
+    assert code == e2e.EXIT_OK
+    text = json.dumps(evidence, ensure_ascii=False) + capsys.readouterr().out
+    for value in ("0900000000", "0900000001", '"S"', '"R"', TOKEN):
+        assert value not in text
+
+
+def test_invalid_scenario_fields_are_refused_without_values(tmp_path, capsys):
+    path = tmp_path / "bad.json"
+    bad = {**SCENARIO, "sender": {**SCENARIO["sender"], "phone": ""}}
+    path.write_text(json.dumps(bad))
+    code, _ = run(tmp_path, [], {**env(tmp_path), "VTP_E2E_SCENARIO": str(path)})
+    out = capsys.readouterr().out
+    assert code == e2e.EXIT_REFUSED
+    assert "invalid fields" in out and "phone" in out and "Traceback" not in out

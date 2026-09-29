@@ -4,7 +4,7 @@ Trạng thái target: **`STAGING_TARGET_MISSING`** (2026-09-29). Workflow `.gith
 
 | # | Mục | Quy định |
 |---|---|---|
-| 0 | Kích hoạt | (a) Đẩy nhánh `deploy/staging` trỏ tới một commit **đã có** trên `develop` (`git push origin <sha>:refs/heads/deploy/staging`) — dùng được ngay; (b) *Actions → Staging → Run workflow* với input `sha` — GitHub chỉ hiện nút này khi file workflow có trên nhánh mặc định `main` (sau main review). Mọi job dùng Environment `staging` chờ chủ dự án duyệt |
+| 0 | Kích hoạt | (a) Đẩy nhánh `deploy/staging` trỏ tới một commit **đã có** trên `develop` **và có chứa `staging.yml`** (tức là từ commit merge PR #25 trở đi; commit cũ hơn không kích hoạt được) — `git push origin <sha>:refs/heads/deploy/staging`; (b) *Actions → Staging → Run workflow* với input `sha` — GitHub chỉ hiện nút này khi file workflow có trên nhánh mặc định `main` (sau main review); khi chạy phải chọn *Use workflow from: `develop`* vì Environment chỉ cho `develop` và `deploy/staging`. Mọi job dùng Environment `staging` chờ chủ dự án duyệt |
 | 1 | Image/build | `docker build -t vip-shipping-gateway:staging-<sha> .` từ **đúng** commit trên `develop` (workflow kiểm SHA 40 ký tự và `merge-base --is-ancestor`), sau khi ruff + pytest + kiểm một migration head đạt |
 | 2 | Runtime | Python 3.11 (ảnh `python:3.11-slim`), phụ thuộc runtime `requirements.txt` (FastAPI 0.141.1, Starlette 1.7.0, SQLAlchemy 2.0.36, Alembic 1.14.0, psycopg 3.2.3, tzdata) |
 | 3 | Lệnh container | `uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers` (CMD của ảnh). Job định kỳ: `python -m app.jobs.replay_webhooks` (thoát 0 = sạch, 3 = còn sự kiện chưa gắn được) |
@@ -17,7 +17,7 @@ Trạng thái target: **`STAGING_TARGET_MISSING`** (2026-09-29). Workflow `.gith
 | 10 | Nạp biến | Từ Environment `staging` (secret + variable, `GITHUB_ENVIRONMENT_STAGING.md`) vào container qua cơ chế của target (vd. file env quyền 600 do deploy tạo, hoặc secret store của nền tảng). Không có `.env` trong ảnh (`.dockerignore`) |
 | 11 | Log | stdout/stderr của container; `LOG_FORMAT=json`; nơi thu log do target quyết định (journald/docker logs/nền tảng). Lớp che bí mật bật sẵn; access log uvicorn là chữ thường |
 | 12 | Restart policy | `unless-stopped`/`always` (hoặc tương đương của nền tảng); readiness 503 không được tính là "chết" để khỏi vòng khởi động lại khi đang migration |
-| 13 | Rollback ảnh/SHA | Triển khai lại `staging-<sha trước>`; nếu khác migration head thì theo thứ tự ở `STAGING.md` §5 |
+| 13 | Rollback ảnh/SHA | Triển khai lại `staging-<sha trước>` (qua workflow chỉ được với SHA có chứa `staging.yml`; SHA cũ hơn: dựng ảnh bằng tay cùng lệnh ở mục 1); nếu khác migration head thì theo thứ tự ở `STAGING.md` §5 |
 | 14 | Smoke test | `scripts/smoke_test.py` với `SMOKE_BASE_URL` = `STAGING_BASE_URL`, `SMOKE_API_KEY` (secret); 9/9 mới coi là triển khai xong |
 | 15 | Phục hồi lỗi | Readiness 503 → xem trường `checks` (tên kiểm hỏng); CSDL mất → webhook trả 5xx và VTP gửi lại (≤ 5 lần), job replay áp các dòng `FAILED`/`IGNORED` sau đó; migration lỗi → khôi phục bản sao lưu vừa kiểm, triển khai lại SHA trước |
 

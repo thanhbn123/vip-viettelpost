@@ -1,7 +1,8 @@
 name: Staging
 
 # Controlled triggers only. Deploys an EXACT develop commit to the `staging` Environment.
-#  * workflow_dispatch: GitHub only offers it once this file is on the default branch (main).
+#  * workflow_dispatch: GitHub only offers it once this file is on the default branch (main);
+#    choose "Use workflow from: develop" - the Environment only allows develop/deploy/staging.
 #  * push to branch `deploy/staging`: works before that; the pushed commit must already be
 #    on develop (checked below). Point the branch at a develop commit to deploy it.
 # Fails closed: without a configured staging target (vars.STAGING_DEPLOY_METHOD) the
@@ -46,6 +47,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
           fetch-depth: 0
       - name: SHA is a full SHA contained in develop
         run: |
@@ -75,6 +77,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
       - run: docker build -t "vip-shipping-gateway:staging-${SHA}" .
       - name: Image checks (non-root, app imports)
         run: |
@@ -107,6 +110,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
       - name: Deploy
         env:
           METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
@@ -149,6 +153,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -173,7 +178,7 @@ jobs:
           set -uo pipefail
           args=()
           [ "${CREATE}" = "true" ] && args+=(--create)
-          python scripts/vtp_dev_e2e.py "${args[@]}" --evidence "${RUNNER_TEMP}/evidence.json"
+          python -m scripts.vtp_dev_e2e "${args[@]}" --evidence "${RUNNER_TEMP}/evidence.json"
           rc=$?
           cat "${RUNNER_TEMP}/evidence.json" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
           exit $rc

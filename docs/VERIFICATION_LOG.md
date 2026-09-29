@@ -138,3 +138,19 @@ Test #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
 | L7 | LOW | Kiểm "không lộ nội bộ" của smoke chỉ phủ 404 | Ghi rõ phạm vi |
 | L8 | LOW | Thước đo không có lệnh chạy; smoke chạy từ đâu | Job in thước đo và thoát mã 3 khi > 0; hướng dẫn chạy smoke từ checkout |
 - Lần 2, HEAD `c863d8d`: 409 passed / 10 skipped; 554 passed / 1 skipped. Khối §4 chạy nguyên văn: thiếu biến → dừng (bash và zsh), đủ biến → dump được `pg_restore --list` nhận, `current` = `shp_0004 (head)`; readiness 503 khi thiếu `API_KEYS`; §5 đúng (D-015 từ chối như mô tả). **FAIL**: H1 **HIGH** — `python -m app.jobs.replay_webhooks` luôn lỗi `NameError` (khối `__main__` đứng trước hàm mới gọi) → mọi lần chạy theo lịch thoát 1. Sửa: đưa khối `__main__` xuống cuối; test chạy đúng lệnh `-m` bằng subprocess (hỏng trên mã cũ) + test mã thoát 3. LOW: §4 chỉ an toàn khi chạy dạng file (ghi rõ); dump ghi ngoài repo + `.gitignore` chặn `*.dump`, ưu tiên `~/.pgpass`; thêm `DATABASE_URL_PSQL` vào bảng biến.
+
+## PR #25 — Staging continuation
+
+- Lần 1, HEAD `c567ccd`: 417 passed / 10 skipped; 563 passed / 1 skipped. 14 biến thể URL production đều bị từ chối, 0 yêu cầu gửi đi; 8 đột biến, 7 bị bắt. **FAIL**:
+
+| # | Mức | Phát hiện | Xử lý |
+|---|---|---|---|
+| 1 | HIGH | `python scripts/vtp_dev_e2e.py` không import được `app` → job G08 luôn hỏng | `python -m scripts.vtp_dev_e2e` ở workflow/tài liệu; test subprocess chạy đúng lệnh (và lệnh smoke) |
+| 2 | MEDIUM | Dịch vụ rỗng + không có mã dịch vụ → thoát 0 mà chưa gọi tính cước; tạo đơn vẫn thử khi bước trước hỏng | Dịch vụ rỗng = FAIL; bước chỉ-đọc không PASS = run hỏng; tạo đơn chỉ khi 1–3 PASS |
+| 3 | MEDIUM | Dispatch từ `main` bị Environment từ chối | Tài liệu + chú thích workflow: chọn `develop` |
+| 4 | MEDIUM (cấu hình) | Kiểm "thuộc develop" nằm trong workflow của commit được đẩy; repo không có ruleset | Ghi rõ bước duyệt là cổng thật; khuyến nghị ruleset (việc của chủ dự án) |
+| 5 | LOW | Kịch bản sai → traceback có giá trị (SĐT) trong log, mã thoát 1 | Kiểm kịch bản trong `load_scenario`, chỉ nêu tên trường, thoát 2 |
+| 6 | LOW | Không test vắng dữ liệu cá nhân ở bằng chứng tạo đơn | Thêm test |
+| 7 | LOW | Tài liệu tự mâu thuẫn (Environment đã tạo/chưa, nhánh, danh sách biến, "chạy tay", `VTP_BASE_URL` REQUIRED) | Sửa |
+| 8 | LOW | "Dùng được ngay" quá rộng (commit cũ không có `staging.yml`) | Ghi rõ từ commit merge PR #25 trở đi |
+| 9 | LOW | `checkout` giữ token; tự duyệt | `persist-credentials: false`; ghi rõ tự duyệt |

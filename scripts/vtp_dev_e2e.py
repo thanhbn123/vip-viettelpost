@@ -5,13 +5,16 @@ only. Read-only by default (authenticate, services, fee). Creating a test order 
 creates state at Viettel Post - needs BOTH ``--create`` and ``VTP_E2E_ALLOW_CREATE=yes``;
 the order is cancelled immediately afterwards.
 
-    VTP_E2E_SCENARIO=scenario.json python scripts/vtp_dev_e2e.py [--create]
+    VTP_E2E_SCENARIO=scenario.json python -m scripts.vtp_dev_e2e [--create]
+
+(Run as a module from the repository root so ``app`` is importable.)
 
 Credentials come from the environment (VTP_TOKEN, or VTP_USERNAME + VTP_PASSWORD) and are
 never printed. Evidence (no secrets, no personal data) is written as JSON.
 
-Exit codes: 0 all executed steps passed · 1 a step failed · 2 refused (production URL or
-bad scenario) · 3 BLOCKED_EXTERNAL_CREDENTIAL (no credentials configured).
+Exit codes: 0 authenticate, services (non-empty) and fee all passed (and create/cancel when
+requested) · 1 a step failed or was skipped · 2 refused (non-development URL, bad scenario
+or settings) · 3 BLOCKED_EXTERNAL_CREDENTIAL (no credentials configured).
 """
 
 import argparse
@@ -23,6 +26,8 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+
+from pydantic import ValidationError
 
 from app.core.config import VTP_DEV_BASE_URL
 from app.domain.models import Address, Money, ShipmentPackage
@@ -51,16 +56,36 @@ class Report:
 
     @property
     def failed(self) -> bool:
-        return any(s.status == "FAIL" for s in self.steps)
+        """FAIL anywhere, or a required read-only step not PASS (a skip is not success)."""
+        required = {"authenticate", "get_services", "calculate_fee"}
+        return any(s.status == "FAIL" for s in self.steps) or any(
+            s.status != "PASS" for s in self.steps if s.name in required
+        )
 
 
 def load_scenario(path: str | None) -> dict[str, Any]:
+    """Load and VALIDATE the scenario; errors name fields only, never input values."""
     if not path:
         raise ValueError("VTP_E2E_SCENARIO is not set (path to a scenario JSON)")
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("scenario is not valid JSON") from exc
     for key in ("sender", "receiver", "packages", "provider_options"):
         if key not in data:
             raise ValueError(f"scenario is missing '{key}'")
+    try:
+        data["_parsed"] = {
+            "sender": Address(**data["sender"]),
+            "receiver": Address(**data["receiver"]),
+            "packages": [ShipmentPackage(**p) for p in data["packages"]],
+            "cod": Money(**data["cod_amount"]) if data.get("cod_amount") else None,
+        }
+    except ValidationError as exc:
+        fields = sorted({".".join(str(p) for p in e["loc"]) for e in exc.errors()})
+        raise ValueError(f"scenario has invalid fields: {fields}") from None
+    except TypeError:
+        raise ValueError("scenario has unexpected field names") from None
     return data
 
 
@@ -86,8 +111,12 @@ async def _timed(report: Report, name: str, coro_factory) -> Any:
         result, evidence = await coro_factory()
     except Exception as exc:  # recorded, never re-raised: the run reports every step
         report.steps.append(
-            Step(name, "FAIL", round((time.perf_counter() - started) * 1000, 1),
-                 error=type(exc).__name__)
+            Step(
+                name,
+                "FAIL",
+                round((time.perf_counter() - started) * 1000, 1),
+                error=type(exc).__name__,
+            )
         )
         return None
     report.steps.append(
@@ -96,19 +125,20 @@ async def _timed(report: Report, name: str, coro_factory) -> Any:
     return result
 
 
-async def run(env: dict[str, str], scenario: dict[str, Any], *, create: bool,
-              transport=None) -> Report:
+async def run(
+    env: dict[str, str], scenario: dict[str, Any], *, create: bool, transport=None
+) -> Report:
     report = Report(
         base_url=env.get("VTP_BASE_URL") or VTP_DEV_BASE_URL,
         started_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     )
     provider = build_provider(env, transport)
-    sender = Address(**scenario["sender"])
-    receiver = Address(**scenario["receiver"])
-    packages = [ShipmentPackage(**p) for p in scenario["packages"]]
+    parsed = scenario["_parsed"]
+    sender, receiver, packages = parsed["sender"], parsed["receiver"], parsed["packages"]
     options = scenario["provider_options"]
-    cod = Money(**scenario["cod_amount"]) if scenario.get("cod_amount") else None
+    cod = parsed["cod"]
     try:
+
         async def auth():
             result = await provider.authenticate()
             return result, {"authenticated": result.authenticated}
@@ -118,27 +148,51 @@ async def run(env: dict[str, str], scenario: dict[str, Any], *, create: bool,
 
         async def services():
             result = await provider.get_services(
-                ServiceQuery(sender=sender, receiver=receiver, packages=packages,
-                             cod_amount=cod, provider_options=options)
+                ServiceQuery(
+                    sender=sender,
+                    receiver=receiver,
+                    packages=packages,
+                    cod_amount=cod,
+                    provider_options=options,
+                )
             )
-            return result, {"count": len(result),
-                            "service_codes": sorted({s.service_code for s in result})}
+            return result, {
+                "count": len(result),
+                "service_codes": sorted({s.service_code for s in result}),
+            }
 
         found = await _timed(report, "get_services", services)
+        if found is not None and not found:
+            report.steps[-1].status = "FAIL"
+            report.steps[-1].error = "no services returned for this route"
         service_code = scenario.get("service_code") or (found[0].service_code if found else None)
 
         async def fee():
             result = await provider.calculate_fee(
-                FeeRequest(sender=sender, receiver=receiver, packages=packages,
-                           service_code=service_code, cod_amount=cod, provider_options=options)
+                FeeRequest(
+                    sender=sender,
+                    receiver=receiver,
+                    packages=packages,
+                    service_code=service_code,
+                    cod_amount=cod,
+                    provider_options=options,
+                )
             )
-            return result, {"service_code": service_code, "total": str(result.total.amount),
-                            "currency": result.total.currency}
+            return result, {
+                "service_code": service_code,
+                "total": str(result.total.amount),
+                "currency": result.total.currency,
+            }
 
         if service_code:
             await _timed(report, "calculate_fee", fee)
         else:
             report.steps.append(Step("calculate_fee", "SKIPPED", error="no service code"))
+
+        if any(s.status != "PASS" for s in report.steps):
+            report.steps.append(Step("create_shipment", "SKIPPED", error="earlier step not PASS"))
+            report.steps.append(Step("cancel_shipment", "SKIPPED", error="nothing created"))
+            return report
 
         allowed = env.get("VTP_E2E_ALLOW_CREATE") == "yes"
         if not (create and allowed):
@@ -151,12 +205,21 @@ async def run(env: dict[str, str], scenario: dict[str, Any], *, create: bool,
 
         async def create_order():
             result = await provider.create_shipment(
-                CreateShipmentRequest(order_id=order_id, sender=sender, receiver=receiver,
-                                      packages=packages, service_code=service_code,
-                                      cod_amount=cod, provider_options=options)
+                CreateShipmentRequest(
+                    order_id=order_id,
+                    sender=sender,
+                    receiver=receiver,
+                    packages=packages,
+                    service_code=service_code,
+                    cod_amount=cod,
+                    provider_options=options,
+                )
             )
-            return result, {"order_id": order_id, "tracking_number": result.tracking_number,
-                            "status": result.status.value}
+            return result, {
+                "order_id": order_id,
+                "tracking_number": result.tracking_number,
+                "status": result.status.value,
+            }
 
         created = await _timed(report, "create_shipment", create_order)
         if created is None:
@@ -165,8 +228,10 @@ async def run(env: dict[str, str], scenario: dict[str, Any], *, create: bool,
 
         async def cancel():
             result = await provider.cancel_shipment(created.tracking_number)
-            return result, {"tracking_number": result.tracking_number,
-                            "cancelled": result.cancelled}
+            return result, {
+                "tracking_number": result.tracking_number,
+                "cancelled": result.cancelled,
+            }
 
         await _timed(report, "cancel_shipment", cancel)
         return report
@@ -174,11 +239,13 @@ async def run(env: dict[str, str], scenario: dict[str, Any], *, create: bool,
         await provider.close()
 
 
-def main(argv: list[str] | None = None, env: dict[str, str] | None = None,
-         transport=None) -> int:
+def main(argv: list[str] | None = None, env: dict[str, str] | None = None, transport=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--create", action="store_true",
-                        help="also create + cancel a test order (needs VTP_E2E_ALLOW_CREATE=yes)")
+    parser.add_argument(
+        "--create",
+        action="store_true",
+        help="also create + cancel a test order (needs VTP_E2E_ALLOW_CREATE=yes)",
+    )
     parser.add_argument("--evidence", default="vtp-dev-e2e-evidence.json")
     args = parser.parse_args(argv)
     env = dict(os.environ if env is None else env)
@@ -191,6 +258,11 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None,
         print("BLOCKED_EXTERNAL_CREDENTIAL: set VTP_TOKEN or VTP_USERNAME + VTP_PASSWORD")
         return EXIT_BLOCKED
     try:
+        float(env.get("VTP_TIMEOUT_SECONDS") or 20.0)
+    except ValueError:
+        print("REFUSED: VTP_TIMEOUT_SECONDS is not a number")
+        return EXIT_REFUSED
+    try:
         scenario = load_scenario(env.get("VTP_E2E_SCENARIO"))
     except (OSError, ValueError) as exc:
         print(f"REFUSED: {exc}")
@@ -198,8 +270,15 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None,
 
     report = asyncio.run(run(env, scenario, create=args.create, transport=transport))
     Path(args.evidence).write_text(
-        json.dumps({"base_url": report.base_url, "started_at": report.started_at,
-                    "steps": [asdict(s) for s in report.steps]}, ensure_ascii=False, indent=2),
+        json.dumps(
+            {
+                "base_url": report.base_url,
+                "started_at": report.started_at,
+                "steps": [asdict(s) for s in report.steps],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
     for step in report.steps:
