@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install ruff==0.6.9  # same pin as requirements-dev.txt
-      - run: ruff check app tests migrations
+      - run: ruff check app tests migrations scripts
 
   test:
     runs-on: ubuntu-latest

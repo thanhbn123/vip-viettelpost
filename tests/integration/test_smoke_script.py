@@ -22,8 +22,8 @@ def test_smoke_passes_on_a_correct_deployment(migrated_url, monkeypatch, make_en
     monkeypatch.setattr(settings, "webhook_shared_secret", "whk-test-not-real")
     monkeypatch.setattr(settings, "vtp_token", "eyJfake.not.real")
     from app.api.dependencies import get_operations
-    from app.services.operations import ShipmentOperations
     from app.db.session import make_session_factory
+    from app.services.operations import ShipmentOperations
 
     app.dependency_overrides[get_operations] = lambda: ShipmentOperations(
         make_session_factory(engine)
