@@ -99,3 +99,39 @@ jobs:
         run: >
           docker run --rm -e VTP_WEBHOOK_TIMEZONE=Asia/Ho_Chi_Minh vip-shipping-gateway:ci
           python -c "import app.main; from zoneinfo import ZoneInfo; ZoneInfo('Asia/Ho_Chi_Minh'); print('ok')"
+
+  rehearsal:
+    # Rehearses the staging pipeline mechanics on EPHEMERAL containers (CR-STG-001).
+    # Verdict is REHEARSAL_PASS at best: this is never staging evidence.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-only-throwaway
+          POSTGRES_DB: rehearsal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d rehearsal"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-dev.txt
+      - name: Rehearse image -> migrate -> start -> acceptance (no preflight, no target)
+        env:
+          GIT_SHA: ${{ github.sha }}
+          REHEARSAL_DB_URL: postgresql+psycopg://ci:ci-only-throwaway@127.0.0.1:5432/rehearsal
+        run: bash scripts/staging/rehearsal.sh
+      - name: Rehearsal evidence
+        if: always()
+        run: cat rehearsal-evidence.json >> "$GITHUB_STEP_SUMMARY" || true

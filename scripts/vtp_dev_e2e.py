@@ -274,6 +274,8 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None, trans
             {
                 "base_url": report.base_url,
                 "started_at": report.started_at,
+                # Binds the evidence to the deployed commit; acceptance requires a match.
+                "sha": env.get("VTP_E2E_SHA"),
                 "steps": [asdict(s) for s in report.steps],
             },
             ensure_ascii=False,
