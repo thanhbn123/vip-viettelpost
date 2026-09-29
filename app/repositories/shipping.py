@@ -234,6 +234,8 @@ class ShippingRepository:
         if data.canonical_status is None:
             if not data.requires_review:
                 raise ValueError("an event without canonical status must require review")
+            if not data.provider_status:
+                raise ValueError("an event without canonical status must keep provider_status")
         elif data.canonical_status not in SHIPMENT_STATUSES:
             raise ValueError(f"unknown canonical status: {data.canonical_status}")
         if data.provider_event_id is not None:
@@ -414,7 +416,10 @@ WEBHOOK_NORMALIZED_COLUMNS = frozenset(
         "occurred_at",
         "processing_status",
         "processing_started_at",
+        "processed_at",
         "attempt_count",
+        "error_code",
+        "error_message",
     }
 )
 

@@ -62,19 +62,31 @@ def run_migrations_online() -> None:
 
 
 def _run_with_connection(connection) -> None:
-    if connection.dialect.name == "sqlite" and not connection.in_transaction():
-        connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+    sqlite = connection.dialect.name == "sqlite"
+    if sqlite and not connection.in_transaction():
+        # SQLite batch migrations rebuild tables (copy + DROP + rename). With foreign keys
+        # enforced, dropping a rebuilt PARENT table fires ON DELETE actions on its
+        # children (e.g. SET NULL) and silently loses links. Follow SQLite's documented
+        # ALTER procedure: FKs off during the migration, then foreign_key_check.
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
         # The PRAGMA auto-began a transaction; end it so Alembic's own
         # begin_transaction() owns (and commits) the migration transaction.
         connection.commit()
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
-        render_as_batch=connection.dialect.name == "sqlite",
+        render_as_batch=sqlite,
         compare_type=True,
     )
     with context.begin_transaction():
         context.run_migrations()
+    if sqlite:
+        violations = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+        connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        if connection.in_transaction():
+            connection.commit()
+        if violations:
+            raise RuntimeError(f"foreign key violations after migration: {violations[:5]}")
 
 
 if context.is_offline_mode():

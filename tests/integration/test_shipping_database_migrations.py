@@ -233,3 +233,44 @@ def test_shp_0002_webhook_status_check_lists_every_domain_status():
     source = (REPO_ROOT / "migrations" / "versions" / f"{HEAD}.py").read_text()
     for status in ShipmentStatus:
         assert f"'{status.value}'" in source
+
+
+def test_shp_0002_keeps_event_to_webhook_links_across_upgrade_and_downgrade(db_url):
+    """Batch table rebuilds on SQLite must not fire ON DELETE SET NULL (verifier, PR #6)."""
+    cfg = alembic_config(db_url)
+    command.upgrade(cfg, BASE_REVISION)
+    engine = make_engine(db_url)
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "INSERT INTO shipping_providers (id, code, name, enabled, created_at, updated_at) "
+            "VALUES (7, 'GHN', 'GHN', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO shipping_webhook_events (id, provider_id, fingerprint, payload_json, "
+            "received_at, processing_status, attempt_count) VALUES (5, 7, '"
+            + "a" * 64
+            + "', '{}', CURRENT_TIMESTAMP, 'RECEIVED', 0)"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO shipments (id, order_id, provider_id, tracking_number, status, "
+            "package_count, cod_amount, currency, created_at, updated_at) VALUES "
+            "(3, 'O', 7, 'T', 'CREATED', 0, 0, 'VND', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO shipment_events (shipment_id, provider_id, canonical_status, "
+            "occurred_at, received_at, webhook_event_id) VALUES "
+            "(3, 7, 'PICKED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 5)"
+        )
+    engine.dispose()
+
+    def link():
+        e = make_engine(db_url)
+        with e.connect() as conn:
+            value = conn.exec_driver_sql("SELECT webhook_event_id FROM shipment_events").scalar()
+        e.dispose()
+        return value
+
+    command.upgrade(cfg, "head")
+    assert link() == 5
+    command.downgrade(cfg, BASE_REVISION)
+    assert link() == 5

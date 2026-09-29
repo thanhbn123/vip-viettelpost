@@ -57,6 +57,23 @@
 - SQLite `BEGIN IMMEDIATE` (D-014).
 - CI thêm job `postgres` (D-016).
 
+### Verifier độc lập (PR #6, HEAD `bcf34cf`) và cách xử
+
+Verifier chạy trên bản clone riêng; đo lại 287 passed (SQLite) và 344 passed / 1 skipped (SQLite + PG 16), khớp số của controller. Kết luận ban đầu: **FAIL**.
+
+| # | Mức | Phát hiện | Xử lý |
+|---|---|---|---|
+| 1 | HIGH | Hai lần retry đồng thời của sự kiện `FAILED` đều được áp; `attempt_count` mất một lần đếm (tái hiện trên PG) | D-020: claim lại bằng UPDATE có điều kiện |
+| 2 | HIGH | `_record_failure` ghi đè `FAILED` lên lần giao trùng đã lưu thành công → retry áp lại (tái hiện trên PG) | D-020: UPDATE có điều kiện, không hạ `RECEIVED`/`PROCESSED` |
+| 3 | MEDIUM | SQLite: batch migration làm rỗng `shipment_events.webhook_event_id` | D-021 |
+| 4 | MEDIUM | COD không đối chiếu với `ORDER_PAYMENT` | Để nguyên, ghi vào R-005: nghĩa của 1–4 chưa được xác minh với tài liệu, không tự đặt luật |
+| 5 | LOW | Route tạm trả 500 với lỗi yêu cầu VTP | Trả 422 (`ViettelPostRequestError`, `MixedCurrencyError`) |
+| 5 | LOW | Dòng sự kiện không canonical, không `provider_status` hợp lệ ở CSDL nhưng hỏng ở domain | Repository từ chối ghi dòng như vậy |
+| 5 | LOW | Phí lúc tạo đơn vào `estimated_fee`, `actual_fee` chưa bao giờ được ghi | Có chủ đích (D-009); `actual_fee` thuộc G10 |
+| 5 | LOW | Downgrade `shp_0002` bỏ các cột chuẩn hoá của webhook | Chấp nhận: payload giữ nguyên, dựng lại được |
+
+Hai test race mới **hỏng trên `sql_sink.py` cũ** (2 failed trên PG) và **đạt trên bản sửa**; test FK **hỏng trên `env.py` cũ** (`None == 5`) và đạt trên bản sửa.
+
 ### Chưa làm trong G05 (có chủ đích)
 
 - Áp sự kiện webhook vào vận đơn (cập nhật `shipments`, nối `shipment_events`, audit) → **G07**. Hiện sự kiện được lưu bền ở trạng thái `RECEIVED`.

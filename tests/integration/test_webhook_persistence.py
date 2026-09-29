@@ -183,3 +183,93 @@ def test_route_end_to_end_with_durable_sink(factory):
     assert (second.status_code, second.json()["result"]) == (200, "DUPLICATE")
     assert bad.status_code == 401
     assert len(rows(factory)) == 1
+
+
+# --- races found by the independent verifier of PR #6 --------------------------------
+
+
+def test_two_concurrent_retries_of_a_failed_event_apply_once(factory):
+    """Two simultaneous provider retries of a FAILED event: exactly one is applied."""
+    state = {"fail": True}
+    applied = []
+    lock = threading.Lock()
+    both_inside = threading.Barrier(2, timeout=2)
+
+    def hook(session, row, event):
+        if state["fail"]:
+            raise RuntimeError("first delivery fails")
+        try:
+            both_inside.wait()  # widen the race window when both could get in
+        except threading.BrokenBarrierError:
+            pass
+        with lock:
+            applied.append(row.id)
+
+    p = processor(factory, after_store=hook)
+    with pytest.raises(RuntimeError):
+        p.process(body(payload()))
+    state["fail"] = False
+
+    results = []
+
+    def deliver():
+        outcome = p.process(body(payload()))
+        with lock:
+            results.append(outcome.kind)
+
+    threads = [threading.Thread(target=deliver) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+    assert len(applied) == 1
+    assert sorted(results) == sorted([WebhookResultKind.ACCEPTED, WebhookResultKind.DUPLICATE])
+    (row,) = rows(factory)
+    assert row.processing_status == "RECEIVED"
+    assert row.attempt_count == 2  # failed attempt + successful retry, no lost update
+
+
+def test_failure_never_overwrites_a_concurrent_successful_delivery(factory):
+    """A fails inside processing while duplicate B stores the event: B's success stands."""
+    a_inside = threading.Event()
+    release_a = threading.Event()
+    applied = []
+    lock = threading.Lock()
+    calls = {"n": 0}
+
+    def hook(session, row, event):
+        with lock:
+            calls["n"] += 1
+            first = calls["n"] == 1
+        if first:
+            a_inside.set()
+            release_a.wait(5)
+            raise RuntimeError("transient failure in delivery A")
+        with lock:
+            applied.append(row.id)
+
+    p = processor(factory, after_store=hook)
+    errors = []
+
+    def run_a():
+        try:
+            p.process(body(payload()))
+        except RuntimeError as exc:
+            errors.append(exc)
+
+    ta = threading.Thread(target=run_a)
+    ta.start()
+    assert a_inside.wait(5)
+    tb = threading.Thread(target=lambda: p.process(body(payload())))
+    tb.start()
+    threading.Event().wait(0.3)  # let B block on A's claim
+    release_a.set()
+    ta.join(timeout=30)
+    tb.join(timeout=30)
+
+    assert len(errors) == 1 and len(applied) == 1
+    (row,) = rows(factory)
+    assert row.processing_status == "RECEIVED"
+    # the provider retries A's 5xx: already stored, so it is a duplicate
+    assert p.process(body(payload())).kind is WebhookResultKind.DUPLICATE
+    assert len(applied) == 1

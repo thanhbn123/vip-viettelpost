@@ -13,7 +13,7 @@ Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập
 | G02 | VTP auth / API client | PASS / PENDING INTEGRATION | `feature/vtp-api-client` | #2 | `d83ae97a2c0a` | success | 51 passed | — | vào G05 |
 | G03 | Webhook / status mapper | PASS / PENDING INTEGRATION | `feature/vtp-webhook-status` | #3 | `a45b7fd6b692` | success | 80 passed | — | vào G05 |
 | G04 | Database / migrations | PASS / PENDING INTEGRATION | `feature/shp-database` | #4 | `4df8ce7b699b` | success | 49 passed | — | vào G05 |
-| G05 | Integration foundation | IN PROGRESS | `integration/cr-shp-001` | (mở) | xem PR | chờ | SQLite 287 passed; SQLite+PG16 cục bộ 344 passed / 1 skipped | — | CI → cổng merge → develop |
+| G05 | Integration foundation | IN PROGRESS — sửa sau verifier | `integration/cr-shp-001` | #6 | xem PR | lần 1 (`bcf34cf`) success; verifier FAIL (2 HIGH) → đã sửa | SQLite 290 passed; SQLite+PG16 cục bộ 350 passed / 1 skipped | — | CI + verifier lại → cổng merge |
 | G06 | Application service / REST API | OPEN | — | — | — | — | — | — | sau G05 |
 | G07 | Durable webhook processing (nối vận đơn) | OPEN | — | — | — | — | — | — | sau G06 |
 | G08 | VTP sandbox / dev E2E | BLOCKED_EXTERNAL_CREDENTIAL | — | — | — | — | — | R-001 | chủ dự án cấp credential dev |
