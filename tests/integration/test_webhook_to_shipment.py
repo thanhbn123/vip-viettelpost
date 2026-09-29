@@ -8,7 +8,6 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from app.api.dependencies import get_application
 from app.db.models import Shipment as ShipmentRecord
 from app.db.models import ShipmentEvent as EventRecord
 from app.db.models import ShippingAuditLog, ShippingWebhookEvent
@@ -18,7 +17,6 @@ from app.main import app
 from app.providers.viettel_post.events import resolve_timezone, vtp_event_order_key
 from app.services.shipping_app import ShippingApplication
 from app.services.webhook_applier import WebhookShipmentApplier
-from app.webhooks.dependencies import get_vtp_webhook_processor
 from app.webhooks.processor import WebhookProcessor
 from app.webhooks.sql_sink import SqlWebhookSink
 from tests.integration.test_shipping_api import BASE, FakeProvider, create_body
@@ -90,23 +88,6 @@ class Env:
     def webhooks(self):
         with self.sessions() as s:
             return list(s.scalars(select(ShippingWebhookEvent).order_by(ShippingWebhookEvent.id)))
-
-
-@pytest.fixture
-def make_env(migrated_url):
-    envs = []
-
-    def build(**kwargs):
-        env = Env(migrated_url, **kwargs)
-        envs.append(env)
-        app.dependency_overrides[get_application] = lambda: env.app
-        app.dependency_overrides[get_vtp_webhook_processor] = lambda: env.processor
-        return env
-
-    yield build
-    app.dependency_overrides.clear()
-    for env in envs:
-        env.engine.dispose()
 
 
 @pytest.fixture

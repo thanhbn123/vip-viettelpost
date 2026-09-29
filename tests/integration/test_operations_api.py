@@ -7,7 +7,7 @@ from app.api.dependencies import get_operations
 from app.main import app
 from app.services.operations import ShipmentOperations
 from tests.integration.test_shipping_api import BASE, create_body
-from tests.integration.test_webhook_to_shipment import HOOK, make_env, vtp  # noqa: F401
+from tests.integration.test_webhook_to_shipment import HOOK, vtp
 
 
 @pytest.fixture
