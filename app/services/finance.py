@@ -111,7 +111,9 @@ class ShipmentFinance:
     @staticmethod
     def _amount(value: Decimal, currency: str, record: ShipmentRecord, *, signed=False) -> Decimal:
         if currency != record.currency:
-            raise FinanceError(f"amount currency {currency} differs from shipment {record.currency}")
+            raise FinanceError(
+                f"amount currency {currency} differs from shipment {record.currency}"
+            )
         try:
             amount = to_money(value)
         except (TypeError, ValueError) as exc:
@@ -124,7 +126,9 @@ class ShipmentFinance:
     def _cod(session: Session, shipment_id: int) -> ShipmentCod | None:
         return session.scalar(select(ShipmentCod).where(ShipmentCod.shipment_id == shipment_id))
 
-    def _audit(self, session, shipment_id, action, actor, before, after, reason=None, request_id=None):
+    def _audit(
+        self, session, shipment_id, action, actor, before, after, reason=None, request_id=None
+    ):
         ShippingRepository(session).write_audit_log(
             entity_type="shipment",
             entity_id=str(shipment_id),
@@ -165,14 +169,31 @@ class ShipmentFinance:
                 estimated_fee=record.estimated_fee,
                 actual_fee=record.actual_fee,
                 fees=[
-                    FeeLine(f.id, f.fee_type, f.source, f.amount, f.currency, f.note,
-                            f.provider_reference, f.created_at)
+                    FeeLine(
+                        f.id,
+                        f.fee_type,
+                        f.source,
+                        f.amount,
+                        f.currency,
+                        f.note,
+                        f.provider_reference,
+                        f.created_at,
+                    )
                     for f in fees
                 ],
                 reconciliations=[
-                    ReconciliationLine(r.id, r.kind, r.statement_reference, r.expected_amount,
-                                       r.actual_amount, r.difference_amount, r.currency, r.status,
-                                       r.note, r.reconciled_at)
+                    ReconciliationLine(
+                        r.id,
+                        r.kind,
+                        r.statement_reference,
+                        r.expected_amount,
+                        r.actual_amount,
+                        r.difference_amount,
+                        r.currency,
+                        r.status,
+                        r.note,
+                        r.reconciled_at,
+                    )
                     for r in recs
                 ],
             )
@@ -180,8 +201,14 @@ class ShipmentFinance:
     # -- COD ----------------------------------------------------------------------------
 
     def record_cod_collected(
-        self, shipment_id, amount: Decimal, currency: str, *, actor: Actor,
-        collected_at: datetime | None = None, request_id: str | None = None,
+        self,
+        shipment_id,
+        amount: Decimal,
+        currency: str,
+        *,
+        actor: Actor,
+        collected_at: datetime | None = None,
+        request_id: str | None = None,
     ) -> FinanceView:
         with self._sessions() as session, session.begin():
             record = self._shipment(session, shipment_id, lock=True)
@@ -196,14 +223,27 @@ class ShipmentFinance:
             cod.collected_at = collected_at or self._clock()
             cod.status = "COLLECTED" if value == cod.expected_amount else "PARTIAL"
             session.flush()
-            self._audit(session, shipment_id, AuditAction.COD_CHANGED, actor, before,
-                        {"collected_amount": str(value), "status": cod.status},
-                        request_id=request_id)
+            self._audit(
+                session,
+                shipment_id,
+                AuditAction.COD_CHANGED,
+                actor,
+                before,
+                {"collected_amount": str(value), "status": cod.status},
+                request_id=request_id,
+            )
         return self.view(shipment_id)
 
     def record_cod_remitted(
-        self, shipment_id, amount: Decimal, currency: str, reference: str, *, actor: Actor,
-        remitted_at: datetime | None = None, request_id: str | None = None,
+        self,
+        shipment_id,
+        amount: Decimal,
+        currency: str,
+        reference: str,
+        *,
+        actor: Actor,
+        remitted_at: datetime | None = None,
+        request_id: str | None = None,
     ) -> FinanceView:
         with self._sessions() as session, session.begin():
             record = self._shipment(session, shipment_id, lock=True)
@@ -220,17 +260,34 @@ class ShipmentFinance:
             if value == cod.collected_amount:
                 cod.status = "REMITTED"
             session.flush()
-            self._audit(session, shipment_id, AuditAction.COD_CHANGED, actor, before,
-                        {"remitted_amount": str(value), "status": cod.status,
-                         "remittance_reference": reference},
-                        request_id=request_id)
+            self._audit(
+                session,
+                shipment_id,
+                AuditAction.COD_CHANGED,
+                actor,
+                before,
+                {
+                    "remitted_amount": str(value),
+                    "status": cod.status,
+                    "remittance_reference": reference,
+                },
+                request_id=request_id,
+            )
         return self.view(shipment_id)
 
     # -- fees ---------------------------------------------------------------------------
 
     def add_fee(
-        self, shipment_id, *, fee_type: str, source: FeeSource, amount: Decimal, currency: str,
-        actor: Actor, note: str | None = None, provider_reference: str | None = None,
+        self,
+        shipment_id,
+        *,
+        fee_type: str,
+        source: FeeSource,
+        amount: Decimal,
+        currency: str,
+        actor: Actor,
+        note: str | None = None,
+        provider_reference: str | None = None,
         request_id: str | None = None,
     ) -> FinanceView:
         if source == "ADJUSTMENT" and not note:
@@ -249,27 +306,51 @@ class ShipmentFinance:
                 raise FinanceError("the actual fee would become negative")
             session.add(
                 ShipmentFee(
-                    shipment_id=shipment_id, fee_type=fee_type, source=source, amount=value,
-                    currency=record.currency, note=note, provider_reference=provider_reference,
+                    shipment_id=shipment_id,
+                    fee_type=fee_type,
+                    source=source,
+                    amount=value,
+                    currency=record.currency,
+                    note=note,
+                    provider_reference=provider_reference,
                     created_by=actor.id,
                 )
             )
             before = {"actual_fee": None if record.actual_fee is None else str(record.actual_fee)}
             record.actual_fee = to_money(new_total)
             session.flush()
-            action = (AuditAction.RECONCILIATION_ADJUSTED if source == "ADJUSTMENT"
-                      else "FEE_RECORDED")
-            self._audit(session, shipment_id, action, actor, before,
-                        {"actual_fee": str(record.actual_fee), "line": str(value),
-                         "fee_type": fee_type, "source": source},
-                        reason=note, request_id=request_id)
+            action = (
+                AuditAction.RECONCILIATION_ADJUSTED if source == "ADJUSTMENT" else "FEE_RECORDED"
+            )
+            self._audit(
+                session,
+                shipment_id,
+                action,
+                actor,
+                before,
+                {
+                    "actual_fee": str(record.actual_fee),
+                    "line": str(value),
+                    "fee_type": fee_type,
+                    "source": source,
+                },
+                reason=note,
+                request_id=request_id,
+            )
         return self.view(shipment_id)
 
     # -- reconciliation -----------------------------------------------------------------
 
     def reconcile(
-        self, shipment_id, *, kind: ReconciliationKind, actual_amount: Decimal, currency: str,
-        statement_reference: str | None, actor: Actor, request_id: str | None = None,
+        self,
+        shipment_id,
+        *,
+        kind: ReconciliationKind,
+        actual_amount: Decimal,
+        currency: str,
+        statement_reference: str | None,
+        actor: Actor,
+        request_id: str | None = None,
     ) -> FinanceView:
         with self._sessions() as session, session.begin():
             record = self._shipment(session, shipment_id, lock=True)
@@ -285,19 +366,36 @@ class ShipmentFinance:
             status = "MATCHED" if difference == 0 else "MISMATCH"
             session.add(
                 ShipmentReconciliation(
-                    shipment_id=shipment_id, provider_id=record.provider_id, kind=kind,
-                    statement_reference=statement_reference, expected_amount=expected,
-                    actual_amount=actual, difference_amount=difference,
-                    currency=record.currency, status=status, reconciled_at=self._clock(),
+                    shipment_id=shipment_id,
+                    provider_id=record.provider_id,
+                    kind=kind,
+                    statement_reference=statement_reference,
+                    expected_amount=expected,
+                    actual_amount=actual,
+                    difference_amount=difference,
+                    currency=record.currency,
+                    status=status,
+                    reconciled_at=self._clock(),
                     created_by=actor.id,
                 )
             )
             session.flush()
-            self._audit(session, shipment_id, "RECONCILIATION_RECORDED", actor, None,
-                        {"kind": kind, "expected": str(expected), "actual": str(actual),
-                         "difference": str(difference), "status": status,
-                         "statement_reference": statement_reference},
-                        request_id=request_id)
+            self._audit(
+                session,
+                shipment_id,
+                "RECONCILIATION_RECORDED",
+                actor,
+                None,
+                {
+                    "kind": kind,
+                    "expected": str(expected),
+                    "actual": str(actual),
+                    "difference": str(difference),
+                    "status": status,
+                    "statement_reference": statement_reference,
+                },
+                request_id=request_id,
+            )
         return self.view(shipment_id)
 
     def resolve(
@@ -313,8 +411,15 @@ class ShipmentFinance:
             rec.status = "RESOLVED"
             rec.note = note
             session.flush()
-            self._audit(session, rec.shipment_id, AuditAction.RECONCILIATION_ADJUSTED, actor,
-                        before, {"status": "RESOLVED", "reconciliation_id": rec.id},
-                        reason=note, request_id=request_id)
+            self._audit(
+                session,
+                rec.shipment_id,
+                AuditAction.RECONCILIATION_ADJUSTED,
+                actor,
+                before,
+                {"status": "RESOLVED", "reconciliation_id": rec.id},
+                reason=note,
+                request_id=request_id,
+            )
             shipment_id = rec.shipment_id
         return self.view(shipment_id)

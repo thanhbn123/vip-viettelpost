@@ -10,7 +10,6 @@ from app.main import app
 from app.services.finance import ShipmentFinance
 from app.services.operations import ShipmentOperations
 from tests.integration.test_shipping_api import BASE, create_body
-from tests.integration.test_webhook_to_shipment import make_env  # noqa: F401
 
 
 @pytest.fixture
@@ -49,9 +48,13 @@ def test_initial_finance_view(fin):
 def test_cod_collected_and_remitted(fin):
     _, client = fin
     sid = ship(client)
-    partial = client.post(f"{BASE}/shipments/{sid}/cod/collected", json={"amount": {"amount": "100000"}})
+    partial = client.post(
+        f"{BASE}/shipments/{sid}/cod/collected", json={"amount": {"amount": "100000"}}
+    )
     assert partial.status_code == 200 and partial.json()["cod_status"] == "PARTIAL"
-    full = client.post(f"{BASE}/shipments/{sid}/cod/collected", json={"amount": {"amount": "150000"}})
+    full = client.post(
+        f"{BASE}/shipments/{sid}/cod/collected", json={"amount": {"amount": "150000"}}
+    )
     assert full.json()["cod_status"] == "COLLECTED"
     remitted = client.post(
         f"{BASE}/shipments/{sid}/cod/remitted",
@@ -81,7 +84,12 @@ def test_cod_rules(fin):
     assert usd.status_code == 422
     floaty = client.post(f"{BASE}/shipments/{sid}/cod/collected", json={"amount": {"amount": 1.5}})
     assert floaty.status_code == 422
-    assert client.post(f"{BASE}/shipments/999/cod/collected", json={"amount": {"amount": "1"}}).status_code == 404
+    assert (
+        client.post(
+            f"{BASE}/shipments/999/cod/collected", json={"amount": {"amount": "1"}}
+        ).status_code
+        == 404
+    )
 
 
 def test_fees_actual_and_adjustment(fin):
@@ -89,8 +97,12 @@ def test_fees_actual_and_adjustment(fin):
     sid = ship(client)
     actual = client.post(
         f"{BASE}/shipments/{sid}/fees",
-        json={"fee_type": "SHIPPING", "source": "PROVIDER_ACTUAL", "amount": "17000.50",
-              "provider_reference": "BK-1"},
+        json={
+            "fee_type": "SHIPPING",
+            "source": "PROVIDER_ACTUAL",
+            "amount": "17000.50",
+            "provider_reference": "BK-1",
+        },
     )
     assert actual.status_code == 201 and D(actual.json()["actual_fee"]) == D("17000.50")
     no_note = client.post(
@@ -100,8 +112,12 @@ def test_fees_actual_and_adjustment(fin):
     assert no_note.status_code == 422
     adjusted = client.post(
         f"{BASE}/shipments/{sid}/fees",
-        json={"fee_type": "SHIPPING", "source": "ADJUSTMENT", "amount": "-500.50",
-              "note": "VTP giảm cước theo đối soát"},
+        json={
+            "fee_type": "SHIPPING",
+            "source": "ADJUSTMENT",
+            "amount": "-500.50",
+            "note": "VTP giảm cước theo đối soát",
+        },
     )
     view = adjusted.json()
     assert D(view["actual_fee"]) == D("16500.00")
@@ -147,10 +163,15 @@ def test_reconciliation_matched_mismatch_resolve(fin):
     )
     assert resolved.status_code == 200
     assert resolved.json()["reconciliations"][-1]["status"] == "RESOLVED"
-    assert client.post(
-        f"{BASE}/reconciliations/{matched['id']}/resolve", json={"note": "x"}
-    ).status_code == 409
-    assert client.post(f"{BASE}/reconciliations/9999/resolve", json={"note": "x"}).status_code == 404
+    assert (
+        client.post(
+            f"{BASE}/reconciliations/{matched['id']}/resolve", json={"note": "x"}
+        ).status_code
+        == 409
+    )
+    assert (
+        client.post(f"{BASE}/reconciliations/9999/resolve", json={"note": "x"}).status_code == 404
+    )
 
 
 def test_fee_reconciliation_needs_expected_fee(fin, monkeypatch):
