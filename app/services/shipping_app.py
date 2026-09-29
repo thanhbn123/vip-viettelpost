@@ -389,11 +389,24 @@ class ShippingApplication:
         lock = self._claim_operation(shipment_id, status, "CANCEL")
         try:
             result = await adapter.cancel_shipment(tracking)
-        except BaseException as exc:  # includes request cancellation (asyncio.CancelledError)
+        except (ProviderRequestError, ProviderRejectedError) as exc:
+            # The carrier refused: nothing changed there, the lock can go.
             self._release_operation(shipment_id, lock)
+            self._audit_only(
+                shipment_id, actor, request_id, "PROVIDER_CANCEL_FAILED", type(exc).__name__
+            )
+            raise
+        except BaseException as exc:
+            # Timeout, 5xx, unreadable answer or request cancellation: the carrier MAY have
+            # cancelled. Keep the lock until it expires (D-023, verifier F4 on PR #10) so no
+            # second cancel is sent right away; the provider's webhook converges the status.
             if isinstance(exc, Exception):
                 self._audit_only(
-                    shipment_id, actor, request_id, "PROVIDER_CANCEL_FAILED", type(exc).__name__
+                    shipment_id,
+                    actor,
+                    request_id,
+                    "PROVIDER_CANCEL_OUTCOME_UNKNOWN",
+                    type(exc).__name__,
                 )
             raise
         try:
@@ -468,8 +481,12 @@ class ShippingApplication:
                     request_id=request_id,
                 )
                 return False
-            # The status changed while the carrier was cancelling (e.g. a webhook reported
-            # DELIVERED). Keep the recorded status; release our lock; flag it.
+            # The status changed while the carrier was cancelling. If the provider's own
+            # webhook already recorded the cancellation, that is agreement, not conflict.
+            current = session.scalar(
+                select(ShipmentRecord.status).where(ShipmentRecord.id == shipment_id)
+            )
+            already_cancelled = current == new_status.value
             session.execute(
                 update(ShipmentRecord)
                 .where(ShipmentRecord.id == shipment_id, ShipmentRecord.operation_lock == lock)
@@ -479,13 +496,18 @@ class ShippingApplication:
             repo.write_audit_log(
                 entity_type="shipment",
                 entity_id=str(shipment_id),
-                action="PROVIDER_CANCELLED_AFTER_STATUS_CHANGE",
+                action=(
+                    AuditAction.SHIPMENT_CANCELLED
+                    if already_cancelled
+                    else "PROVIDER_CANCELLED_AFTER_STATUS_CHANGE"
+                ),
                 actor=actor,
                 before={"status": status.value},
+                after={"status": current},
                 reason=reason,
                 request_id=request_id,
             )
-            return True
+            return not already_cancelled
 
     def _claim_operation(self, shipment_id: int, status: ShipmentStatus, name: str) -> str:
         """Take the operation lock; returns the per-request token that owns it."""
