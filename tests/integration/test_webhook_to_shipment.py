@@ -358,7 +358,7 @@ def test_internal_error_response_carries_request_id_header(env, monkeypatch):
 
 
 def test_enabling_timezone_later_does_not_allow_regression(make_env):
-    env = make_env()  # no timezone configured
+    make_env()  # no timezone configured
     with TestClient(app) as client:
         sid = created(client)
         client.post(HOOK, content=vtp(500, "29/09/2026 12:00:00"))
