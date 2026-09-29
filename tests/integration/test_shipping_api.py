@@ -289,7 +289,8 @@ def test_cancel_provider_failure_keeps_status(env):
     response = client.post(f"{BASE}/shipments/{shipment['id']}/cancel")
     assert response.status_code == 503
     assert status_of(sessions, shipment["id"]) == "CREATED"
-    assert audit_actions(sessions, shipment["id"])[-1] == "PROVIDER_CANCEL_FAILED"
+    # 5xx: the carrier may have cancelled -> outcome unknown, lock kept (D-023)
+    assert audit_actions(sessions, shipment["id"])[-1] == "PROVIDER_CANCEL_OUTCOME_UNKNOWN"
 
 
 def test_cancel_unknown_shipment(env):
@@ -442,13 +443,18 @@ def test_stale_operation_lock_is_reclaimed(env):
     assert client.post(f"{BASE}/shipments/{shipment['id']}/cancel").status_code == 200
 
 
-def test_failed_cancel_releases_the_lock(env):
+def test_rejected_cancel_releases_the_lock_unknown_outcome_keeps_it(env):
     client, provider, sessions = env
     shipment = client.post(f"{BASE}/shipments", json=create_body()).json()
-    provider.fail_with["cancel_shipment"] = ProviderUnavailableError("down")
-    assert client.post(f"{BASE}/shipments/{shipment['id']}/cancel").status_code == 503
+    provider.fail_with["cancel_shipment"] = ProviderRejectedError("too late to cancel")
+    assert client.post(f"{BASE}/shipments/{shipment['id']}/cancel").status_code == 422
+    assert audit_actions(sessions, shipment["id"])[-1] == "PROVIDER_CANCEL_FAILED"
+    provider.fail_with["cancel_shipment"] = ProviderTimeoutError("t")
+    assert client.post(f"{BASE}/shipments/{shipment['id']}/cancel").status_code == 504
     del provider.fail_with["cancel_shipment"]
-    assert client.post(f"{BASE}/shipments/{shipment['id']}/cancel").status_code == 200
+    retry = client.post(f"{BASE}/shipments/{shipment['id']}/cancel")
+    assert retry.status_code == 409 and retry.json()["error"] == "operation_in_progress"
+    assert provider.calls.count("cancel_shipment") == 2  # no third call while unknown
 
 
 def test_unexpected_error_returns_json_500_without_details(env, monkeypatch):

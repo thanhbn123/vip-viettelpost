@@ -19,7 +19,7 @@ Rules (D-026):
 
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -62,7 +62,7 @@ class WebhookShipmentApplier:
             )
             .with_for_update()
         )
-        now = row.processing_started_at or row.received_at
+        now = datetime.now(UTC)  # when this row was actually processed (incl. replays)
         if shipment is None:
             row.processing_status = "IGNORED"
             row.error_code = NOT_FOUND
@@ -121,13 +121,16 @@ class WebhookShipmentApplier:
         return row.processing_status
 
     def _time_key(self, occurred_at: datetime | None, raw: str | None) -> tuple[int, Any] | None:
-        if occurred_at is not None:
-            return (0, occurred_at)
+        """One consistent kind of key per provider (verifier F1 on PR #10).
+
+        A provider with an order key (VTP) is always compared on its own raw time, so
+        enabling or changing the timezone later cannot make old and new events
+        incomparable. Otherwise the aware ``occurred_at`` is used.
+        """
         if self._order_key is not None:
             key = self._order_key(raw)
-            if key is not None:
-                return (1, key)
-        return None
+            return None if key is None else (1, key)
+        return None if occurred_at is None else (0, occurred_at)
 
     def _decide(self, session: Session, shipment: ShipmentRecord, row: ShippingWebhookEvent) -> str:
         if row.canonical_status is None:
@@ -155,13 +158,19 @@ class WebhookShipmentApplier:
         return "APPLY"
 
     def replay_unmatched(self, session: Session, provider_id: int, tracking_number: str) -> int:
-        """Apply events that arrived before their shipment was recorded. Returns count."""
+        """Apply stored events not yet attached to a shipment. Returns the number applied.
+
+        Picks RECEIVED, IGNORED/SHIPMENT_NOT_FOUND and FAILED rows (a FAILED row whose
+        provider retries were exhausted is otherwise never applied). Rows are locked, and
+        the event insert is deduplicated by fingerprint, so a concurrent live delivery
+        cannot apply the same event twice.
+        """
         rows = session.scalars(
             select(ShippingWebhookEvent)
             .where(
                 ShippingWebhookEvent.provider_id == provider_id,
                 ShippingWebhookEvent.tracking_number == tracking_number,
-                ShippingWebhookEvent.processing_status.in_(("IGNORED", "RECEIVED")),
+                ShippingWebhookEvent.processing_status.in_(("IGNORED", "RECEIVED", "FAILED")),
             )
             .order_by(ShippingWebhookEvent.received_at, ShippingWebhookEvent.id)
             .with_for_update()
