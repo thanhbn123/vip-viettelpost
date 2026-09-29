@@ -2,7 +2,7 @@
 
 Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập nhật sau mỗi gate. Giờ theo +07:00.
 
-**Cập nhật lần cuối:** 2026-09-29 — **FINAL STATE: STAGING READY** (G00–G14 xong; G08 và G15 bị chặn bởi điều kiện bên ngoài)
+**Cập nhật lần cuối:** 2026-09-29 — **FINAL STATE: STAGING READY** (G00–G07, G09–G14 PASS; G08 và G15 bị chặn bởi điều kiện bên ngoài)
 **`main`:** `3b89b367cf3bd57ac6021645ff15ae37958898f7` · **`develop`:** `8cd7d4bf8cedf626f364ac7df7efe5c0aeef8cf1` (sau merge PR #22; CI sau merge run 36539857970: lint, test 410 passed / 10 skipped, postgres 556 passed / 1 skipped, image — cả 4 success) · **`main`:** không đổi
 **Migration head:** `develop` = `shp_0004_shipments_created_index`
 
