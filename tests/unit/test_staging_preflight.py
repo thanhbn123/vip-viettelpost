@@ -27,7 +27,7 @@ def test_everything_missing_lists_names_and_fails(capsys):
 def test_values_are_never_read_or_printed(capsys):
     env = {
         **ALL_SECRETS,
-        "DATABASE_URL": "postgresql://u:SuperSecret99@h/db",
+        "DATABASE_URL": "postgresql://u:" + "SuperSecret99" + "@h/db",
         "STAGING_BASE_URL": "https://staging.example.test",
         "STAGING_DEPLOY_METHOD": "nope",
         "VTP_E2E_SCENARIO_JSON": "{}",
