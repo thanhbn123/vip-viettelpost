@@ -91,6 +91,18 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def derive_cod_status(
+    expected: Decimal, collected: Decimal | None, remitted: Decimal | None
+) -> str:
+    """COD status from the three numbers only (D-029). Called on every COD write, so the
+    status can never disagree with the amounts (verifier finding 1 on PR #14)."""
+    if collected is None:
+        return "PENDING"
+    if remitted is not None and remitted == collected:
+        return "REMITTED"
+    return "COLLECTED" if collected == expected else "PARTIAL"
+
+
 class ShipmentFinance:
     def __init__(self, sessions: sessionmaker[Session], *, clock=_now) -> None:
         self._sessions = sessions
@@ -218,10 +230,12 @@ class ShipmentFinance:
             if cod.status in ("REMITTED", "CANCELLED"):
                 raise InvalidShipmentStateError(f"COD already {cod.status}")
             value = self._amount(amount, currency, record)
+            if cod.remitted_amount is not None and value < cod.remitted_amount:
+                raise FinanceError("collected amount cannot be below the amount already remitted")
             before = {"collected_amount": str(cod.collected_amount), "status": cod.status}
             cod.collected_amount = value
             cod.collected_at = collected_at or self._clock()
-            cod.status = "COLLECTED" if value == cod.expected_amount else "PARTIAL"
+            cod.status = derive_cod_status(cod.expected_amount, value, cod.remitted_amount)
             session.flush()
             self._audit(
                 session,
@@ -252,13 +266,18 @@ class ShipmentFinance:
                 raise FinanceError(f"shipment {shipment_id} has no COD")
             if cod.collected_amount is None:
                 raise InvalidShipmentStateError("COD not collected yet")
+            if cod.status in ("REMITTED", "CANCELLED"):
+                # Fully remitted is final for this foundation; corrections go through
+                # reconciliation, not by overwriting the remittance (verifier PR #14).
+                raise InvalidShipmentStateError(f"COD already {cod.status}")
             value = self._amount(amount, currency, record)
+            if value > cod.collected_amount:
+                raise FinanceError("remitted amount cannot exceed the collected amount")
             before = {"remitted_amount": str(cod.remitted_amount), "status": cod.status}
             cod.remitted_amount = value
             cod.remitted_at = remitted_at or self._clock()
             cod.remittance_reference = reference
-            if value == cod.collected_amount:
-                cod.status = "REMITTED"
+            cod.status = derive_cod_status(cod.expected_amount, cod.collected_amount, value)
             session.flush()
             self._audit(
                 session,
@@ -304,6 +323,10 @@ class ShipmentFinance:
             new_total = sum(lines, Decimal(0)) + value
             if new_total < 0:
                 raise FinanceError("the actual fee would become negative")
+            try:
+                new_total = to_money(new_total)
+            except (TypeError, ValueError) as exc:
+                raise FinanceError(str(exc)) from exc
             session.add(
                 ShipmentFee(
                     shipment_id=shipment_id,
@@ -357,7 +380,9 @@ class ShipmentFinance:
             actual = self._amount(actual_amount, currency, record)
             if kind == "COD":
                 cod = self._cod(session, shipment_id)
-                expected = cod.expected_amount if cod else Decimal("0.00")
+                if cod is None:
+                    raise FinanceError(f"shipment {shipment_id} has no COD to reconcile")
+                expected = cod.expected_amount
             else:
                 if record.estimated_fee is None:
                     raise FinanceError("no expected fee to reconcile against")
