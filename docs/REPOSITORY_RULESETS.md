@@ -9,7 +9,9 @@ Nguồn chân lý: `.github/rulesets/*.json`. Áp bằng `python scripts/github/
 
 Không có `bypass_actors`: kể cả admin cũng không đẩy thẳng lên `develop` được. Không đặt cho `main` trong CR này (main review là bước riêng của chủ dự án).
 
-**Trạng thái áp dụng:** định nghĩa trong repo; **chưa áp** tại thời điểm viết (GET `/rulesets` = `[]`, 2026-09-29). Kết quả áp thật ghi ở `MASTER_STATUS.md`.
+**Trạng thái áp dụng:** **đã áp** 2026-09-29 23:26:12 +07:00 bằng `apply_rulesets.py` chạy từ `develop` `5369d3b` (merge PR #30): `CREATE` ×2 → `deploy-staging-baseline` id `24193226`, `develop-baseline` id `24193228`, cả hai `active`. Chạy lại ngay sau đó in `SAME` ×2. Kiểm bằng GET `rules/branches/develop` (4 luật: `deletion`, `non_fast_forward`, `pull_request`, `required_status_checks` gồm 5 check của app `15368`) và `rules/branches/deploy/staging` (3 luật). `main` vẫn 0 luật (không đụng tới). Trước khi áp: GET `/rulesets` = `[]`.
+
+Giới hạn của bộ so lệch: chỉ xét trường khai báo trong JSON. `allowed_merge_methods` **không** được khai báo, nên nếu ai đó thu hẹp cách merge trên giao diện (vd chỉ còn squash) thì `apply_rulesets.py` **không** báo lệch.
 
 Hệ quả vận hành:
 - Rollback staging **không** đẩy lùi `deploy/staging` (bị cấm force push) — dùng phase `rollback` của hook, hoặc triển khai một commit `develop` mới hơn.
