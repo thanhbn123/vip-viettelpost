@@ -437,3 +437,20 @@ def test_replay_job_continues_after_a_failing_key(env, client, monkeypatch):
     monkeypatch.setattr(env.applier, "replay_unmatched", flaky)
     replay_pending(env.sessions, env.applier)  # must not raise
     assert env.shipment(sid).status == "PICKED"
+
+
+def test_replay_failing_inside_the_database_does_not_lose_the_created_record(
+    env, client, monkeypatch
+):
+    """App-level savepoint check (verifier PR #20): the replay runs SQL that fails inside
+    the create transaction (on PostgreSQL this aborts the transaction); the shipment's
+    tracking number must still be recorded."""
+    from sqlalchemy import text
+
+    def failing_sql(session, provider_id, tracking):
+        session.execute(text("SELECT * FROM table_that_does_not_exist"))
+
+    monkeypatch.setattr(env.applier, "replay_unmatched", failing_sql)
+    sid = created(client)
+    assert env.shipment(sid).tracking_number == "TRK0001"
+    assert env.shipment(sid).status == "CREATED"

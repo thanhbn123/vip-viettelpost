@@ -31,6 +31,9 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001 - pytest hook sig
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL")
+# CI's postgres job sets REQUIRE_POSTGRES=1: a missing URL must fail, not silently skip.
+if os.environ.get("REQUIRE_POSTGRES") == "1" and not POSTGRES_URL:
+    raise RuntimeError("REQUIRE_POSTGRES=1 but TEST_POSTGRES_URL is not set")
 BACKENDS = ["sqlite"] + (["postgresql"] if POSTGRES_URL else [])
 
 

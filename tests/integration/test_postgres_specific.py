@@ -176,8 +176,11 @@ def test_partial_unique_index_predicate_matches_the_model(pg):
         ).scalar()
     assert "UNIQUE" in definition
     # PostgreSQL normalises "status NOT IN (...)" to "status <> ALL (ARRAY[...])".
-    assert "'DRAFT'" in definition and "'CANCELLED'" in definition
+    import re
+
     assert "<> ALL" in definition or "NOT IN" in definition.upper()
+    excluded = set(re.findall(r"'([A-Z_]+)'", definition))
+    assert excluded == {"DRAFT", "CANCELLED"}  # exactly the inactive statuses of D-022
 
 
 def test_create_time_replay_savepoint_recovers_an_aborted_transaction(pg):
