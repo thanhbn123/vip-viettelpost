@@ -69,6 +69,8 @@ class BodyLimitMiddleware:
                     (b"connection", b"close"),
                     (b"x-content-type-options", b"nosniff"),
                     (b"cache-control", b"no-store"),
+                    (b"x-frame-options", b"DENY"),
+                    (b"referrer-policy", b"no-referrer"),
                 ],
             }
         )

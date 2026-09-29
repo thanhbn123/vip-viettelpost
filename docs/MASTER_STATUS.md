@@ -2,9 +2,9 @@
 
 Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập nhật sau mỗi gate. Giờ theo +07:00.
 
-**Cập nhật lần cuối:** 2026-09-29 (G11 đã merge; G12 mở PR)
-**`main`:** `3b89b367cf3bd57ac6021645ff15ae37958898f7` · **`develop`:** `bb7aa4d6eef4b285e881570dd0f70667a7333f93` (sau merge PR #16)
-**Migration head:** `develop` = `shp_0003_active_order_guard`
+**Cập nhật lần cuối:** 2026-09-29 (G12 đã merge; G13 mở PR)
+**`main`:** `3b89b367cf3bd57ac6021645ff15ae37958898f7` · **`develop`:** `20c49811d7ccd7d3123aac1d75d2846c2d7df0f7` (sau merge PR #18)
+**Migration head:** `develop` = `shp_0003_active_order_guard`; nhánh G13 = `shp_0004_shipments_created_index`
 
 | Gate | Phạm vi | Trạng thái | Nhánh | PR | HEAD SHA | CI | Tests | Blockers | Việc kế tiếp |
 |---|---|---|---|---|---|---|---|---|---|
@@ -20,8 +20,8 @@ Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập
 | G09 | Shipment management / operational API | **PASS — MERGED** (merge `e828265`) | `feature/g09-operations` | #12 (issue #11) | `03231f7387cc` | PR run 36532374574 success; sau merge `develop` run 36532818524 success | SQLite 352 passed; PG16 468 passed / 1 skipped | — | — |
 | G10 | COD / fee / reconciliation foundation | **PASS — MERGED** (merge `7acc3ba`) | `feature/g10-finance` | #14 (issue #13) | `c46def5e6fda` | PR run 36533633680 success; sau merge `develop` run 36533838889 success | SQLite 363 passed; PG16 490 passed / 1 skipped | R-011 (quy tắc kế toán) | — |
 | G11 | Retry / resilience / observability | **PASS — MERGED** (merge `bb7aa4d`) | `feature/g11-resilience` | #16 (issue #15) | `c13b22b2980e` | PR success; sau merge `develop` run 36534685049 success | SQLite 378 passed; PG16 507 passed / 1 skipped | — | — |
-| G12 | Security hardening | IN PROGRESS — sửa sau verifier | `feature/g12-security` | #18 (issue #17) | xem PR | lần 1 (`2ed2c98`) 4/4 job success; verifier PASS + 2 MEDIUM → đã sửa | SQLite 404 passed; SQLite+PG16 cục bộ 535 passed / 1 skipped | — | CI → verifier lại → cổng merge |
-| G13 | PostgreSQL integration verification | PARTIAL (job CI PG kéo sớm ở G05, D-016) | — | — | — | — | — | — | — |
+| G12 | Security hardening | **PASS — MERGED** (merge `20c4981`) | `feature/g12-security` | #18 (issue #17) | `930b999f69ca` | PR run 36536141491 success (4 job); sau merge `develop` run 36536444054 success | SQLite 404 passed; PG16 535 passed / 1 skipped | — | — |
+| G13 | PostgreSQL integration verification | IN PROGRESS | `feature/g13-postgres` | (mở) | xem PR | chờ | SQLite 405 passed / 10 skipped (test chỉ PG); SQLite+PG16 cục bộ 547 passed / 1 skipped | — | CI → verifier → cổng merge |
 | G14 | Staging preparation | OPEN | — | — | — | — | — | — | — |
 | G15 | Staging acceptance | BLOCKED — STAGING ENVIRONMENT REQUIRED | — | — | — | — | — | R-008 | chủ dự án cấp môi trường staging |
 
