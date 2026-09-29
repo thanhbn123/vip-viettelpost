@@ -39,8 +39,12 @@ def replay_pending(sessions: sessionmaker[Session], applier: WebhookShipmentAppl
         ).all()
     total = 0
     for provider_id, tracking in keys:
-        with sessions() as session, session.begin():
-            total += applier.replay_unmatched(session, provider_id, tracking)
+        # One failing key must not abandon the rest of the run (verifier L1, PR #10).
+        try:
+            with sessions() as session, session.begin():
+                total += applier.replay_unmatched(session, provider_id, tracking)
+        except Exception:
+            logger.exception("replay failed for provider %s tracking %s", provider_id, tracking)
     return total
 
 
@@ -58,9 +62,10 @@ if __name__ == "__main__":  # pragma: no cover
 
 
 def unmatched_with_shipment(sessions: sessionmaker[Session]) -> int:
-    """Monitoring gauge (verifier F2 on PR #10): IGNORED/SHIPMENT_NOT_FOUND rows whose
-    shipment now exists. Should be 0 after each replay run; > 0 means the job is not
-    running or is failing."""
+    """Monitoring gauge (verifier F2/L3 on PR #10): stored events not attached to a
+    shipment although the shipment now exists (IGNORED/SHIPMENT_NOT_FOUND, FAILED or
+    RECEIVED). Should be 0 after each replay run; > 0 means the job is not running or
+    is failing."""
     from sqlalchemy import exists, func
 
     from app.db.models import Shipment
@@ -70,8 +75,11 @@ def unmatched_with_shipment(sessions: sessionmaker[Session]) -> int:
             select(func.count())
             .select_from(ShippingWebhookEvent)
             .where(
-                ShippingWebhookEvent.processing_status == "IGNORED",
-                ShippingWebhookEvent.error_code == NOT_FOUND,
+                or_(
+                    ShippingWebhookEvent.processing_status.in_(("RECEIVED", "FAILED")),
+                    (ShippingWebhookEvent.processing_status == "IGNORED")
+                    & (ShippingWebhookEvent.error_code == NOT_FOUND),
+                ),
                 exists().where(
                     Shipment.provider_id == ShippingWebhookEvent.provider_id,
                     Shipment.tracking_number == ShippingWebhookEvent.tracking_number,
