@@ -40,6 +40,25 @@ def test_deploy_staging_baseline():
     assert rs["bypass_actors"] == []
 
 
+def test_main_baseline():
+    """main gets the same gate as develop: no deletion, no force push, PR-only, 5 checks."""
+    rs = load("main.json")
+    assert rs["name"] == "main-baseline"
+    assert rs["conditions"]["ref_name"]["include"] == ["refs/heads/main"]
+    assert {"deletion", "non_fast_forward", "pull_request", "required_status_checks"} <= set(
+        rules(rs)
+    )
+    assert checks(rs) == CI_JOBS
+    assert rs["bypass_actors"] == [] and rs["enforcement"] == "active"
+
+
+def test_every_protected_branch_has_a_ruleset():
+    targets = {
+        ref for p in DIR.glob("*.json") for ref in load(p.name)["conditions"]["ref_name"]["include"]
+    }
+    assert {"refs/heads/main", "refs/heads/develop", "refs/heads/deploy/staging"} <= targets
+
+
 def test_required_checks_match_ci_job_ids():
     """Check-run names are the job ids (no ``name:`` key on any job)."""
     ci = (DIR.parent / "workflows" / "ci.yml").read_text()

@@ -1,15 +1,18 @@
-# Repository rulesets (CR-STG-002)
+# Repository rulesets (CR-STG-002, CR-STG-003)
 
 Nguồn chân lý: `.github/rulesets/*.json`. Áp bằng `python scripts/github/apply_rulesets.py` (idempotent; tạo nếu chưa có, cập nhật nếu lệch, **không** xoá ruleset không nằm trong thư mục). Mỗi thay đổi đi qua PR + CI + verifier như mã.
 
 | Ruleset | Nhánh | Luật |
 |---|---|---|
 | `develop-baseline` | `develop` | cấm xoá; cấm force push; mọi thay đổi qua PR (0 lượt duyệt bắt buộc — một người bảo trì); bắt buộc check `lint`, `test`, `postgres`, `image`, `rehearsal` |
+| `main-baseline` (CR-STG-003) | `main` | giống `develop-baseline`: cấm xoá; cấm force push; mọi thay đổi qua PR (0 lượt duyệt bắt buộc); bắt buộc 5 check trên |
 | `deploy-staging-baseline` | `deploy/staging` | cấm xoá; cấm force push; commit được đẩy phải có đủ các check trên |
 
-Không có `bypass_actors`: kể cả admin cũng không đẩy thẳng lên `develop` được. Không đặt cho `main` trong CR này (main review là bước riêng của chủ dự án).
+Không có `bypass_actors`: kể cả admin cũng không đẩy thẳng lên `develop` được. CR-STG-002 chưa đặt cho `main`; CR-STG-003 (issue #32) bổ sung `main-baseline`. Ruleset **không** thay bước review `develop → main` của chủ dự án: nó chỉ chặn đẩy thẳng, force push, xoá nhánh và merge khi CI chưa đạt. 0 lượt duyệt bắt buộc vì repo có một người bảo trì — GitHub không cho tác giả tự duyệt PR của mình, đặt 1 thì chính chủ dự án cũng không merge được.
 
 **Trạng thái áp dụng:** **đã áp** 2026-09-29 23:26:12 +07:00 bằng `apply_rulesets.py` chạy từ `develop` `5369d3b` (merge PR #30): `CREATE` ×2 → `deploy-staging-baseline` id `24193226`, `develop-baseline` id `24193228`, cả hai `active`. Chạy lại ngay sau đó in `SAME` ×2. Kiểm bằng GET `rules/branches/develop` (4 luật: `deletion`, `non_fast_forward`, `pull_request`, `required_status_checks` gồm 5 check của app `15368`) và `rules/branches/deploy/staging` (3 luật). `main` vẫn 0 luật (không đụng tới). Trước khi áp: GET `/rulesets` = `[]`.
+
+**`main-baseline`:** chưa áp — sẽ áp sau khi CR-STG-003 merge vào `develop` (trạng thái cập nhật ở dòng này).
 
 Giới hạn của bộ so lệch: chỉ xét trường khai báo trong JSON. `allowed_merge_methods` **không** được khai báo, nên nếu ai đó thu hẹp cách merge trên giao diện (vd chỉ còn squash) thì `apply_rulesets.py` **không** báo lệch.
 
