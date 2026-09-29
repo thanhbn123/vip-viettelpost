@@ -74,3 +74,7 @@ Tài liệu yêu cầu phản hồi **< 1 giây**; pipeline không gọi mạng.
 - Kẻ có `TOKEN` vẫn giả được sự kiện **mới**. Giảm thiểu: chỉ nhận qua HTTPS, giữ bí mật mạnh và xoay vòng, đối soát định kỳ với VTP (tài liệu Partner 29/09/2026 **chưa có** API tra cứu hành trình đơn — cần VTP xác nhận), cân nhắc giới hạn IP nếu VTP công bố dải IP (hiện **chưa** thấy công bố).
 - **Không** từ chối theo tuổi sự kiện: tài liệu không nêu múi giờ `ORDER_STATUSDATE` hay khoảng thời gian thử lại, nên cửa sổ thời gian sẽ làm mất sự kiện thật.
 - Sự kiện đến sau trạng thái cuối, hay đến sai thứ tự, vẫn được lưu và ACK; việc có đổi trạng thái đơn hay không thuộc tầng cập nhật đơn (cờ `is_terminal` có sẵn để dùng).
+
+### Cập nhật vận đơn từ webhook (G07)
+
+Sự kiện webhook chỉ đổi trạng thái vận đơn qua `WebhookShipmentApplier` trong cùng transaction với claim chống trùng; mọi thay đổi có audit actor `WEBHOOK` kèm `webhook_event:<id>`. Webhook không thể kéo vận đơn ra khỏi trạng thái cuối hay lùi trạng thái bằng sự kiện cũ (D-026).

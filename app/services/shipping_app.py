@@ -47,6 +47,7 @@ from app.repositories.mappers import (
     shipment_to_domain,
 )
 from app.repositories.shipping import Actor, AuditAction, ShippingRepository
+from app.services.webhook_applier import WebhookShipmentApplier
 
 logger = logging.getLogger("app.services.shipping_app")
 
@@ -112,10 +113,12 @@ class ShippingApplication:
         providers: Mapping[ShippingProviderCode, ShippingProvider],
         sessions: sessionmaker[Session],
         *,
+        webhook_applier: WebhookShipmentApplier | None = None,
         clock: Callable[[], datetime] = _now,
     ) -> None:
         self._providers = dict(providers)
         self._sessions = sessions
+        self._applier = webhook_applier
         self._clock = clock
 
     # -- providers ------------------------------------------------------------------
@@ -286,6 +289,15 @@ class ShippingApplication:
                 after={"status": record.status, "tracking_number": record.tracking_number},
                 request_id=request_id,
             )
+            if self._applier is not None:
+                # Provider webhooks can arrive before the tracking number is recorded.
+                replayed = self._applier.replay_unmatched(
+                    session, record.provider_id, result.tracking_number
+                )
+                if replayed:
+                    logger.info(
+                        "shipment %s: applied %s early webhook event(s)", shipment_id, replayed
+                    )
 
     # -- read -----------------------------------------------------------------------
 

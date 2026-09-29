@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from app.domain.models.common import ShippingProviderCode
 from app.domain.models.shipment import ShipmentEvent
 from app.providers.viettel_post.status_mapper import StatusMappingResult
-from app.webhooks.viettel_post_payload import VtpWebhookEvent
+from app.webhooks.viettel_post_payload import VTP_STATUS_DATE_FORMAT, VtpWebhookEvent
 
 
 def resolve_timezone(name: str | None) -> tzinfo | None:
@@ -57,3 +57,17 @@ def to_shipment_event(
         requires_review=mapping.requires_review,
         location=location.strip() or None if isinstance(location, str) else None,
     )
+
+
+def vtp_event_order_key(raw: str | None) -> datetime | None:
+    """Sort key for ORDER_STATUSDATE text when no timezone is configured.
+
+    All Viettel Post events share the same (undocumented) timezone, so comparing the
+    naive times of two VTP events is valid even though neither can be placed in UTC.
+    """
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(" ".join(raw.split()), VTP_STATUS_DATE_FORMAT)  # noqa: DTZ007
+    except ValueError:
+        return None
