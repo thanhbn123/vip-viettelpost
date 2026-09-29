@@ -71,6 +71,6 @@ Tài liệu yêu cầu phản hồi **< 1 giây**; pipeline không gọi mạng.
 
 - Không có chữ ký, nonce hay mốc thời gian ký → **không thể chống phát lại bằng mật mã**.
 - Phát lại **y hệt** một sự kiện đã nhận → trùng fingerprint → ACK 200, không ghi lần hai, không đổi trạng thái.
-- Kẻ có `TOKEN` vẫn giả được sự kiện **mới**. Giảm thiểu: chỉ nhận qua HTTPS, giữ bí mật mạnh và xoay vòng, đối soát định kỳ bằng API tra cứu đơn của VTP, cân nhắc giới hạn IP nếu VTP công bố dải IP (hiện **chưa** thấy công bố).
+- Kẻ có `TOKEN` vẫn giả được sự kiện **mới**. Giảm thiểu: chỉ nhận qua HTTPS, giữ bí mật mạnh và xoay vòng, đối soát định kỳ với VTP (tài liệu Partner 29/09/2026 **chưa có** API tra cứu hành trình đơn — cần VTP xác nhận), cân nhắc giới hạn IP nếu VTP công bố dải IP (hiện **chưa** thấy công bố).
 - **Không** từ chối theo tuổi sự kiện: tài liệu không nêu múi giờ `ORDER_STATUSDATE` hay khoảng thời gian thử lại, nên cửa sổ thời gian sẽ làm mất sự kiện thật.
 - Sự kiện đến sau trạng thái cuối, hay đến sai thứ tự, vẫn được lưu và ACK; việc có đổi trạng thái đơn hay không thuộc tầng cập nhật đơn (cờ `is_terminal` có sẵn để dùng).
