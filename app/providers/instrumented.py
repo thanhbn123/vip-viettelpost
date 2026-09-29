@@ -61,7 +61,10 @@ class InstrumentedProvider(ShippingProvider):
         self._sleep = sleep
 
     def __getattr__(self, name: str) -> Any:
-        # Adapter-specific extras (e.g. ``close``) stay reachable.
+        # Adapter-specific extras (e.g. ``close``) stay reachable. Guard against recursion
+        # when ``inner`` is not set yet (copy/unpickle).
+        if name == "inner":
+            raise AttributeError(name)
         return getattr(self.inner, name)
 
     async def _call(self, op: str, fn, *args, retryable: bool = False):

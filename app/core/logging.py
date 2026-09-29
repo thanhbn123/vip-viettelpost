@@ -44,6 +44,13 @@ class SecretMaskingFilter(logging.Filter):
         masked = self.mask(message)
         if masked != message or record.args:
             record.msg, record.args = masked, None
+        # Tracebacks too (verifier PR #16): render once, mask, and let formatters reuse it.
+        if record.exc_info and not record.exc_text:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+        if record.exc_text:
+            record.exc_text = self.mask(record.exc_text)
+        if record.stack_info:
+            record.stack_info = self.mask(record.stack_info)
         return True
 
 
@@ -58,6 +65,8 @@ class JsonFormatter(logging.Formatter):
         }
         if record.exc_info:
             payload["exc_type"] = record.exc_info[0].__name__ if record.exc_info[0] else None
+            # exc_text is already masked by SecretMaskingFilter when it ran.
+            payload["exc"] = record.exc_text or self.formatException(record.exc_info)
         return json.dumps(payload, ensure_ascii=False)
 
 
