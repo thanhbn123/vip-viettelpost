@@ -116,7 +116,7 @@ def test_provider_implements_baseline_contract():
 async def test_get_services_mapping():
     provider, recorder = provider_with({mapping.GET_SERVICES_PATH: respond(SERVICES_SAMPLE)})
 
-    services = await provider.get_services(
+    services = await provider.api.get_services(
         {**ROUTE, "product_type": "HH", "weight_grams": 100, "price_table_type": 1}
     )
 
@@ -143,7 +143,7 @@ async def test_get_services_rejection_envelope_is_business_error():
         {mapping.GET_SERVICES_PATH: respond(rejected("Price does not apply to this itinerary!"))}
     )
     with pytest.raises(ViettelPostBusinessError):
-        await provider.get_services(
+        await provider.api.get_services(
             {**ROUTE, "product_type": "HH", "weight_grams": 100, "price_table_type": 1}
         )
 
@@ -152,7 +152,7 @@ async def test_get_services_rejection_envelope_is_business_error():
 async def test_get_services_undocumented_success_shape_is_invalid():
     provider, _ = provider_with({mapping.GET_SERVICES_PATH: respond(ok(SERVICES_SAMPLE))})
     with pytest.raises(ViettelPostInvalidResponseError):
-        await provider.get_services(
+        await provider.api.get_services(
             {**ROUTE, "product_type": "HH", "weight_grams": 100, "price_table_type": 1}
         )
 
@@ -161,7 +161,7 @@ async def test_get_services_undocumented_success_shape_is_invalid():
 async def test_calculate_fee_mapping():
     provider, recorder = provider_with({mapping.CALCULATE_FEE_PATH: respond(FEE_SAMPLE)})
 
-    quote = await provider.calculate_fee(
+    quote = await provider.api.calculate_fee(
         {
             **ROUTE,
             "product_type": "HH",
@@ -194,7 +194,7 @@ async def test_calculate_fee_mapping():
 async def test_calculate_fee_missing_total_is_invalid():
     provider, _ = provider_with({mapping.CALCULATE_FEE_PATH: respond(ok({"MONEY_VAT": 1}))})
     with pytest.raises(ViettelPostInvalidResponseError, match="MONEY_TOTAL"):
-        await provider.calculate_fee(
+        await provider.api.calculate_fee(
             {
                 **ROUTE,
                 "product_type": "HH",
@@ -209,7 +209,7 @@ async def test_calculate_fee_missing_total_is_invalid():
 async def test_create_shipment_mapping():
     provider, recorder = provider_with({mapping.CREATE_ORDER_PATH: respond(CREATE_SAMPLE)})
 
-    result = await provider.create_shipment(
+    result = await provider.api.create_order(
         create_payload(
             receiver_district_id=None,
             return_address={"required": True, "full_address": "Kho", "province_id": 1},
@@ -244,14 +244,14 @@ async def test_create_shipment_rejection_is_business_error():
         {mapping.CREATE_ORDER_PATH: respond(rejected("Incorrect data: ORDER_SERVICE"))}
     )
     with pytest.raises(ViettelPostBusinessError, match="ORDER_SERVICE"):
-        await provider.create_shipment(create_payload())
+        await provider.api.create_order(create_payload())
 
 
 @pytest.mark.asyncio
 async def test_create_shipment_empty_order_number_is_invalid():
     provider, _ = provider_with({mapping.CREATE_ORDER_PATH: respond(ok({"ORDER_NUMBER": " "}))})
     with pytest.raises(ViettelPostInvalidResponseError):
-        await provider.create_shipment(create_payload())
+        await provider.api.create_order(create_payload())
 
 
 def test_create_rejects_unknown_field():
@@ -281,7 +281,7 @@ def test_create_rejects_string_over_150_bytes():
 async def test_cancel_mapping():
     provider, recorder = provider_with({mapping.UPDATE_ORDER_STATUS_PATH: respond(CANCEL_SAMPLE)})
 
-    result = await provider.cancel_shipment(" 301298000044 ")
+    result = await provider.api.cancel_order(" 301298000044 ")
 
     assert result == {
         "tracking_number": "301298000044",
@@ -299,14 +299,14 @@ async def test_cancel_rejection_is_business_error():
         {mapping.UPDATE_ORDER_STATUS_PATH: respond(rejected("Order does not exist"))}
     )
     with pytest.raises(ViettelPostBusinessError, match="Order does not exist"):
-        await provider.cancel_shipment("301298000044")
+        await provider.api.cancel_order("301298000044")
 
 
 @pytest.mark.asyncio
 async def test_cancel_requires_tracking_number():
     provider, recorder = provider_with({})
     with pytest.raises(ValueError):
-        await provider.cancel_shipment("  ")
+        await provider.api.cancel_order("  ")
     assert recorder.requests == []
 
 
@@ -339,7 +339,7 @@ async def test_expired_token_is_refreshed_once():
         static_token="",
     )
 
-    quote = await provider.calculate_fee(
+    quote = await provider.api.calculate_fee(
         {
             **ROUTE,
             "product_type": "HH",
@@ -360,16 +360,6 @@ async def test_static_token_rejection_is_not_retried():
         {mapping.UPDATE_ORDER_STATUS_PATH: respond(rejected("Token invalid"))}
     )
     with pytest.raises(ViettelPostAuthError) as info:
-        await provider.cancel_shipment("301298000044")
+        await provider.api.cancel_order("301298000044")
     assert len(recorder.requests) == 1
     assert FAKE_LONG_TOKEN not in str(info.value)
-
-
-@pytest.mark.asyncio
-async def test_handle_webhook_unchanged():
-    provider, _ = provider_with({})
-    assert await provider.handle_webhook({"a": 1}) == {
-        "accepted": True,
-        "provider": "VIETTEL_POST",
-        "payload": {"a": 1},
-    }

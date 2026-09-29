@@ -82,6 +82,11 @@ def decode_envelope(body: bytes) -> RawVtpEnvelope:
         payload = json.loads(body)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise WebhookRejected(RejectionKind.MALFORMED_JSON, "body is not valid JSON") from exc
+    return envelope_from_payload(payload)
+
+
+def envelope_from_payload(payload: Any) -> RawVtpEnvelope:
+    """Validate an already-decoded body (a JSON object with DATA and TOKEN)."""
     if not isinstance(payload, dict):
         raise WebhookRejected(RejectionKind.INVALID_PAYLOAD, "body must be a JSON object")
     data = payload.get("DATA")
