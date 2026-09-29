@@ -67,6 +67,12 @@ class Env:
             webhook_applier=self.applier,
         )
 
+    @staticmethod
+    def app_actor():
+        from app.repositories.shipping import Actor, ActorType
+
+        return Actor(ActorType.SYSTEM, "test")
+
     def shipment(self, sid):
         with self.sessions() as s:
             return s.get(ShipmentRecord, sid)
@@ -291,3 +297,60 @@ def test_replay_job_attaches_events_whose_shipment_appeared_later(env, client):
     assert replay_pending(env.sessions, env.applier) == 1
     assert env.shipment(sid).status == "PICKED"
     assert replay_pending(env.sessions, env.applier) == 0  # idempotent
+
+
+# --- verifier round 2 on PR #8 (cancel after provider success) ------------------------
+
+
+def test_cancel_recorded_nowhere_is_loud_keeps_lock_and_webhook_recovers(env, client, monkeypatch):
+    sid = created(client)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(env.app, "_record_cancelled", broken)
+    with TestClient(app, raise_server_exceptions=False) as c:
+        response = c.post(f"{BASE}/shipments/{sid}/cancel")
+        assert response.status_code == 500
+        assert response.json()["error"] == "persistence_failed_after_provider_success"
+        assert "TRK0001" in response.json()["detail"]
+        # lock kept: an immediate retry does not call the carrier again
+        monkeypatch.undo()
+        assert c.post(f"{BASE}/shipments/{sid}/cancel").status_code == 409
+    assert env.provider.calls.count("cancel_shipment") == 1
+    with env.sessions() as s:
+        actions = [
+            a.action for a in s.scalars(select(ShippingAuditLog).order_by(ShippingAuditLog.id))
+        ]
+    assert "PROVIDER_CANCEL_NOT_RECORDED" in actions
+    # Viettel Post's own cancel callback still brings the shipment to CANCELLED
+    client.post(HOOK, content=vtp(107, "29/09/2026 10:00:00"))
+    assert env.shipment(sid).status == "CANCELLED"
+
+
+def test_request_cancellation_during_provider_call_releases_lock(env, client):
+    import asyncio
+
+    sid = created(client)
+    original = env.provider.cancel_shipment
+
+    async def cancelled(tracking):
+        raise asyncio.CancelledError
+
+    env.provider.cancel_shipment = cancelled
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(env.app.cancel_shipment(sid, actor=env.app_actor()))
+    assert env.shipment(sid).operation_lock is None
+    env.provider.cancel_shipment = original
+    assert client.post(f"{BASE}/shipments/{sid}/cancel").status_code == 200
+
+
+def test_internal_error_response_carries_request_id_header(env, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(env.app, "get_shipment", broken)
+    with TestClient(app, raise_server_exceptions=False) as c:
+        response = c.get(f"{BASE}/shipments/1", headers={"X-Request-ID": "rid-500"})
+    assert response.status_code == 500
+    assert response.headers["X-Request-ID"] == "rid-500"
