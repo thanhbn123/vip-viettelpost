@@ -129,6 +129,15 @@ class Shipment(Base):
         ),
         Index(None, "order_id"),
         Index(None, "status"),
+        # shp_0003: one active shipment per (provider, order); DRAFT/CANCELLED excluded.
+        Index(
+            "uq_shipments_active_provider_order",
+            "provider_id",
+            "order_id",
+            unique=True,
+            postgresql_where=text("status NOT IN ('DRAFT', 'CANCELLED')"),
+            sqlite_where=text("status NOT IN ('DRAFT', 'CANCELLED')"),
+        ),
         CheckConstraint("order_id <> ''", name="order_id_not_empty"),
         CheckConstraint(_in("status", SHIPMENT_STATUSES), name="status_valid"),
         CheckConstraint("package_count >= 0", name="package_count_non_negative"),
