@@ -5,6 +5,9 @@ on:
   push:
     branches: [develop, main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -15,3 +18,45 @@ jobs:
           python-version: "3.11"
       - run: pip install -r requirements.txt
       - run: pytest -q
+
+  postgres:
+    # Throwaway PostgreSQL 16 service container. No shared/staging/production database.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-only-throwaway
+          POSTGRES_DB: shipping_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d shipping_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_POSTGRES_URL: postgresql+psycopg://ci:ci-only-throwaway@localhost:5432/shipping_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Test suite on SQLite and PostgreSQL
+        run: pytest -q
+      - name: Alembic CLI upgrade / downgrade / upgrade on PostgreSQL
+        run: |
+          python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+          e = create_engine(os.environ["TEST_POSTGRES_URL"], isolation_level="AUTOCOMMIT")
+          with e.connect() as c:
+              c.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+              c.execute(text("CREATE SCHEMA public"))
+          PY
+          alembic -c migrations/alembic.ini -x db_url="$TEST_POSTGRES_URL" upgrade head
+          alembic -c migrations/alembic.ini -x db_url="$TEST_POSTGRES_URL" current
+          alembic -c migrations/alembic.ini -x db_url="$TEST_POSTGRES_URL" downgrade base
+          alembic -c migrations/alembic.ini -x db_url="$TEST_POSTGRES_URL" upgrade head
