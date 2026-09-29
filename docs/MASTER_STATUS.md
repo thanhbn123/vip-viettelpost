@@ -21,7 +21,7 @@ Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập
 | G10 | COD / fee / reconciliation foundation | **PASS — MERGED** (merge `7acc3ba`) | `feature/g10-finance` | #14 (issue #13) | `c46def5e6fda` | PR run 36533633680 success; sau merge `develop` run 36533838889 success | SQLite 363 passed; PG16 490 passed / 1 skipped | R-011 (quy tắc kế toán) | — |
 | G11 | Retry / resilience / observability | **PASS — MERGED** (merge `bb7aa4d`) | `feature/g11-resilience` | #16 (issue #15) | `c13b22b2980e` | PR success; sau merge `develop` run 36534685049 success | SQLite 378 passed; PG16 507 passed / 1 skipped | — | — |
 | G12 | Security hardening | **PASS — MERGED** (merge `20c4981`) | `feature/g12-security` | #18 (issue #17) | `930b999f69ca` | PR run 36536141491 success (4 job); sau merge `develop` run 36536444054 success | SQLite 404 passed; PG16 535 passed / 1 skipped | — | — |
-| G13 | PostgreSQL integration verification | IN PROGRESS | `feature/g13-postgres` | (mở) | xem PR | chờ | SQLite 405 passed / 10 skipped (test chỉ PG); SQLite+PG16 cục bộ 547 passed / 1 skipped | — | CI → verifier → cổng merge |
+| G13 | PostgreSQL integration verification | IN PROGRESS — sửa sau verifier | `feature/g13-postgres` | #20 (issue #19) | xem PR | lần 1 (`789c1fd`) 4/4 job success; verifier PASS + 1 MEDIUM → đã sửa | SQLite 406 passed / 10 skipped; SQLite+PG16 cục bộ 549 passed / 1 skipped | — | CI → cổng merge |
 | G14 | Staging preparation | OPEN | — | — | — | — | — | — | — |
 | G15 | Staging acceptance | BLOCKED — STAGING ENVIRONMENT REQUIRED | — | — | — | — | — | R-008 | chủ dự án cấp môi trường staging |
 

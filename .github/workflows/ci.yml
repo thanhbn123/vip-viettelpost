@@ -48,6 +48,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      REQUIRE_POSTGRES: "1"
       TEST_POSTGRES_URL: postgresql+psycopg://ci:ci-only-throwaway@localhost:5432/shipping_ci
     steps:
       - uses: actions/checkout@v4

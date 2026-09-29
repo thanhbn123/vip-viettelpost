@@ -9,6 +9,8 @@ replayed to the application; memory per request is bounded by the limit.
 import json
 from collections.abc import Callable
 
+from app.api.errors import SECURITY_HEADERS
+
 Limit = Callable[[str], int | None]
 
 
@@ -67,10 +69,7 @@ class BodyLimitMiddleware:
                     (b"content-type", b"application/json"),
                     (b"content-length", str(len(body)).encode()),
                     (b"connection", b"close"),
-                    (b"x-content-type-options", b"nosniff"),
-                    (b"cache-control", b"no-store"),
-                    (b"x-frame-options", b"DENY"),
-                    (b"referrer-policy", b"no-referrer"),
+                    *[(k.lower().encode(), v.encode()) for k, v in SECURITY_HEADERS.items()],
                 ],
             }
         )

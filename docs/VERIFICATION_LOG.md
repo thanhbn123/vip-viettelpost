@@ -108,3 +108,15 @@ Test #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
 | 8 | LOW | Phản hồi 500 thiếu header bảo mật | Thêm vào handler 500 |
 | 9 | LOW/INFO | Docstring che API key sai; file DB tạm của test để lại; ảnh gốc chưa ghim digest; cảnh báo `httpx2` của Starlette | Sửa docstring; dọn thư mục tạm cuối phiên test; ghi chưa làm |
 - Lần 2, HEAD `930b999`: 404 passed; 535 passed / 1 skipped. Uvicorn thật, socket thô: 50 MB chunked (có/không key) bị cắt 413 ngay sau chunk 1 MB đầu; RSS cả lượt thử +9,6 MB (trước sửa: +135 MB cho một yêu cầu). **PASS** → merge PR #18 (`20c4981`). LOW còn lại, sửa ở PR G13: tripwire bỏ sót dạng chữ thường/YAML (thêm `re.IGNORECASE`, `[=:]`); self-test chép lại logic lọc (tách hàm `scan`/`is_real_secret` dùng chung); 413 thiếu vài header (thêm); CI che lỗi `grep` (phân biệt mã 1 và >1). Còn chấp nhận: giá trị bí mật tự chứa chữ "test" vẫn lọt tripwire; 413 không có `X-Request-ID` (chạy ngoài middleware request id).
+
+## PR #20 — G13 PostgreSQL verification
+
+- Lần 1, HEAD `789c1fd`: 405 passed / 10 skipped (SQLite); 547 passed / 1 skipped (PG riêng). Thử đột biến M1–M7 (index sai cột/tên, downgrade rỗng, vị từ thừa, bỏ `postgresql_where`, CHECK nới, đổi kiểu tiền): đều bị bắt. **PASS**, kèm:
+
+| # | Mức | Phát hiện | Xử lý |
+|---|---|---|---|
+| 1 | MEDIUM | Test savepoint không chạy qua ứng dụng: bỏ savepoint trong `shipping_app.py` (M8) mà suite vẫn xanh | Test mới qua đường thật (`test_replay_failing_inside_the_database_does_not_lose_the_created_record`); đột biến M8 nay **hỏng trên PG** |
+| 2 | LOW | Tripwire có vài âm tính giả mới (giá trị chứa `,`/`)`, `<...>` áp mọi mẫu) | Chấp nhận, ghi lại; tripwire không phải công cụ quét đầy đủ |
+| 3 | LOW | Test vị từ chỉ tìm chuỗi | So đúng tập `{DRAFT, CANCELLED}` |
+| 4 | LOW | Header 413 là bản chép tay | Dùng chung `SECURITY_HEADERS`; test kiểm đủ |
+| 5 | LOW | Test PG có thể lặng lẽ bị bỏ qua nếu CI mất biến | `REQUIRE_POSTGRES=1` trong job `postgres` → thiếu URL là hỏng |
