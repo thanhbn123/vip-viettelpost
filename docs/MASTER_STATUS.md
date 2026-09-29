@@ -2,8 +2,8 @@
 
 Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập nhật sau mỗi gate. Giờ theo +07:00.
 
-**Cập nhật lần cuối:** 2026-09-29 (G13 đã merge; G14 mở PR)
-**`main`:** `3b89b367cf3bd57ac6021645ff15ae37958898f7` · **`develop`:** `baf827fd531a751a009c24a9e0653774243454fe` (sau merge PR #20)
+**Cập nhật lần cuối:** 2026-09-29 — **FINAL STATE: STAGING READY** (G00–G07, G09–G14 PASS; G08 và G15 bị chặn bởi điều kiện bên ngoài)
+**`main`:** `3b89b367cf3bd57ac6021645ff15ae37958898f7` · **`develop`:** `8cd7d4bf8cedf626f364ac7df7efe5c0aeef8cf1` (sau merge PR #22; CI sau merge run 36539857970: lint, test 410 passed / 10 skipped, postgres 556 passed / 1 skipped, image — cả 4 success) · **`main`:** không đổi
 **Migration head:** `develop` = `shp_0004_shipments_created_index`
 
 | Gate | Phạm vi | Trạng thái | Nhánh | PR | HEAD SHA | CI | Tests | Blockers | Việc kế tiếp |
@@ -22,8 +22,8 @@ Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập
 | G11 | Retry / resilience / observability | **PASS — MERGED** (merge `bb7aa4d`) | `feature/g11-resilience` | #16 (issue #15) | `c13b22b2980e` | PR success; sau merge `develop` run 36534685049 success | SQLite 378 passed; PG16 507 passed / 1 skipped | — | — |
 | G12 | Security hardening | **PASS — MERGED** (merge `20c4981`) | `feature/g12-security` | #18 (issue #17) | `930b999f69ca` | PR run 36536141491 success (4 job); sau merge `develop` run 36536444054 success | SQLite 404 passed; PG16 535 passed / 1 skipped | — | — |
 | G13 | PostgreSQL integration verification | **PASS — MERGED** (merge `baf827f`) | `feature/g13-postgres` | #20 (issue #19) | `476e1c7f0fb5` | PR run 36537880691 success (4 job); sau merge `develop` run 36538183266 success | SQLite 406 passed / 10 skipped (chỉ PG); PG16 549 passed / 1 skipped | — | — |
-| G14 | Staging preparation | IN PROGRESS — sửa sau verifier lần 2 | `feature/g14-staging` | #22 (issue #21) | xem PR | lần 2 (`c863d8d`) 4/4 success; verifier FAIL (1 HIGH: entry point job replay) → đã sửa | SQLite 410 passed / 10 skipped; SQLite+PG16 cục bộ 556 passed / 1 skipped | — | CI → verifier → cổng merge |
-| G15 | Staging acceptance | BLOCKED — STAGING ENVIRONMENT REQUIRED | — | — | — | — | — | R-008 | chủ dự án cấp môi trường staging |
+| G14 | Staging preparation | **PASS — MERGED** (merge `8cd7d4b`) | `feature/g14-staging` | #22 (issue #21) | `b9b5a12df698` | PR run 36539638446 success; sau merge `develop` run 36539857970 success | SQLite 410 passed / 10 skipped; PG16 556 passed / 1 skipped | — | — |
+| G15 | Staging acceptance | BLOCKED — STAGING ENVIRONMENT REQUIRED (runbook + smoke test sẵn: `docs/STAGING.md`) | — | — | — | — | — | R-008 | chủ dự án cấp môi trường staging |
 
 ## Drift đã biết của 4 PR (trước tích hợp) → trạng thái
 
@@ -34,8 +34,15 @@ Chi tiết từng dòng và test chứng minh: `docs/INTEGRATION_NOTES.md`.
 - #3↔#4: kho chống trùng in-memory → **thay bằng `shipping_webhook_events` ở G05**.
 - #1↔#4: provider enum ↔ `provider_id`; Money ↔ cột tiền; COD None ↔ 0; ánh xạ sự kiện; trạng thái → **hoà giải ở G05**.
 
-## Blockers hiện tại
+## Blockers hiện tại (chỉ còn điều kiện bên ngoài)
 
-- R-001 (HIGH): không có credential VTP dev → G08.
-- R-008 (HIGH): chưa có môi trường staging → G15.
-Cả hai là blocker **bên ngoài**, không chặn G05–G07, G09–G14.
+| Blocker | Gate | Chủ dự án cần làm |
+|---|---|---|
+| R-001 Không có credential Viettel Post **development** | G08 | Cấp tài khoản/token dev của VTP vào kho bí mật (GitHub Environment `staging`), không gửi qua chat |
+| R-008 Chưa có môi trường staging được cấp phép | G15 | Chỉ định máy/nền tảng staging + PostgreSQL 16 riêng + URL HTTPS cho webhook |
+
+Quyết định nghiệp vụ đang chờ (không chặn STAGING READY): R-002 múi giờ `ORDER_STATUSDATE` + R-003 mã 104 (hỏi VTP), R-005/R-011 nghĩa `ORDER_PAYMENT` và quy tắc kế toán COD, R-004 repo PUBLIC, R-012 quyền ghi đè trạng thái, R-014 chính sách lưu giữ dữ liệu cá nhân, R-015 rate limit / xoay vòng key.
+
+## PR đã merge vào `develop` (CR-SHP-001)
+
+#1 · #2 · #3 · #4 (qua #6) · #6 G05 · #8 G06 · #10 G07 · #12 G09 · #14 G10 · #16 G11 · #18 G12 · #20 G13 · #22 G14. Mỗi PR: CI success đúng HEAD + verifier độc lập PASS (chi tiết `docs/VERIFICATION_LOG.md`).
