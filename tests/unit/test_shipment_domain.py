@@ -245,3 +245,47 @@ def test_shipment_json_round_trip():
 
     restored = Shipment.model_validate_json(shipment.model_dump_json())
     assert restored == shipment
+
+
+# --- provider events without canonical status (G05) -------------------------
+
+
+def test_event_without_status_requires_review_and_provider_status():
+    with pytest.raises(ValidationError):
+        make_event(status=None)
+    with pytest.raises(ValidationError):
+        make_event(status=None, requires_review=True)  # provider_status missing
+    event = make_event(status=None, requires_review=True, provider_status="999")
+    assert event.status is None
+
+
+def test_event_needs_some_time():
+    with pytest.raises(ValidationError):
+        make_event(occurred_at=None)
+    received = datetime(2026, 9, 29, 3, 0, tzinfo=timezone.utc)
+    event = make_event(occurred_at=None, occurred_at_raw="29/09/2026 10:00:00", received_at=received)
+    assert event.effective_time == received
+
+
+def test_event_received_at_must_be_aware():
+    with pytest.raises(ValidationError):
+        make_event(received_at=datetime(2026, 9, 29, 3, 0))
+
+
+def test_apply_event_without_status_records_but_does_not_move_shipment():
+    shipment = Shipment(order_id="ORD-1", provider="VIETTEL_POST", status="IN_TRANSIT")
+    event = make_event(status=None, requires_review=True, provider_status="505")
+    shipment.apply_event(event)
+    assert shipment.status is ShipmentStatus.IN_TRANSIT
+    assert shipment.events == [event]
+    assert shipment.provider_status is None
+
+
+@pytest.mark.parametrize("amount", ["1.001", "10000000000000000", "0.123"])
+def test_money_rejects_precision_beyond_storage(amount):
+    with pytest.raises(ValidationError):
+        Money(amount=amount)
+
+
+def test_money_accepts_two_decimals_and_max():
+    assert Money(amount="9999999999999999.99").amount == Decimal("9999999999999999.99")

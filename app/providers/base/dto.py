@@ -20,6 +20,14 @@ from app.domain.models.shipment import ShipmentEvent, ShipmentPackage, ShipmentS
 Packages = Annotated[list[ShipmentPackage], Field(min_length=1)]
 """At least one package: a shipment with zero packages is rejected."""
 
+ProviderOptions = dict[str, Any]
+"""Provider-specific options, opaque to the core.
+
+Each adapter validates this mapping with its own typed options model (kept inside the
+adapter package) and rejects unknown keys. Carrier-only fields (location IDs, product
+type, payment mode...) live here instead of in the provider-neutral models.
+"""
+
 
 class AuthResult(ValueObject):
     """Outcome of authenticating with a provider. Never carries the credential."""
@@ -34,6 +42,7 @@ class ServiceQuery(ValueObject):
     receiver: Address
     packages: Packages
     cod_amount: Money | None = None
+    provider_options: ProviderOptions = Field(default_factory=dict)
 
 
 class ServiceOption(ValueObject):
@@ -51,6 +60,7 @@ class FeeRequest(ValueObject):
     packages: Packages
     service_code: str | None = None
     cod_amount: Money | None = None
+    provider_options: ProviderOptions = Field(default_factory=dict)
 
 
 class FeeQuote(ValueObject):
@@ -68,6 +78,7 @@ class CreateShipmentRequest(ValueObject):
     cod_amount: Money | None = None
     note: str | None = None
     idempotency_key: str | None = None
+    provider_options: ProviderOptions = Field(default_factory=dict)
 
     @property
     def package_count(self) -> int:

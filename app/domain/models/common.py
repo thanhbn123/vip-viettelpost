@@ -47,10 +47,25 @@ class ShippingProviderCode(StrEnum):
     VIPORDER_FLEET = "VIPORDER_FLEET"
 
 
-class Money(ValueObject):
-    """Monetary amount. Stored as Decimal; float input is rejected."""
+MONEY_MAX_DECIMAL_PLACES = 2
+MONEY_MAX_INTEGER_DIGITS = 16
+"""Matches the persistence limit NUMERIC(18,2) so a bad amount fails at the edge."""
 
-    amount: Annotated[Decimal, Field(ge=0)]
+
+class Money(ValueObject):
+    """Monetary amount. Stored as Decimal; float input is rejected.
+
+    At most 2 decimal places and 16 integer digits (the NUMERIC(18,2) column limit).
+    """
+
+    amount: Annotated[
+        Decimal,
+        Field(
+            ge=0,
+            max_digits=MONEY_MAX_INTEGER_DIGITS + MONEY_MAX_DECIMAL_PLACES,
+            decimal_places=MONEY_MAX_DECIMAL_PLACES,
+        ),
+    ]
     currency: Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")] = "VND"
 
     @field_validator("amount", mode="before")
