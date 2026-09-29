@@ -19,6 +19,7 @@ Create flow (D-023) — the provider call is never inside a database transaction
 """
 
 import logging
+import uuid
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -385,65 +386,38 @@ class ShippingApplication:
                 f"shipment {shipment_id} cannot be cancelled in status {status.value}"
             )
         _, adapter = self._adapter(code)
-        self._claim_operation(shipment_id, status, "CANCEL")
+        lock = self._claim_operation(shipment_id, status, "CANCEL")
         try:
             result = await adapter.cancel_shipment(tracking)
-        except Exception as exc:
-            self._release_operation(shipment_id, "CANCEL")
-            self._audit_only(
-                shipment_id, actor, request_id, "PROVIDER_CANCEL_FAILED", type(exc).__name__
-            )
+        except BaseException as exc:  # includes request cancellation (asyncio.CancelledError)
+            self._release_operation(shipment_id, lock)
+            if isinstance(exc, Exception):
+                self._audit_only(
+                    shipment_id, actor, request_id, "PROVIDER_CANCEL_FAILED", type(exc).__name__
+                )
             raise
-        with self._sessions() as session, session.begin():
-            repo = ShippingRepository(session)
-            applied = session.execute(
-                update(ShipmentRecord)
-                .where(
-                    ShipmentRecord.id == shipment_id,
-                    ShipmentRecord.status == status.value,
-                    ShipmentRecord.operation_lock == "CANCEL",
-                )
-                .values(
-                    status=result.status.value,
-                    operation_lock=None,
-                    operation_lock_at=None,
-                    updated_at=self._clock(),
-                )
-                .execution_options(synchronize_session=False)
-            ).rowcount
-            if applied != 1:
-                # The status changed while the carrier was cancelling (e.g. a webhook
-                # reported DELIVERED). Keep the recorded status; flag it loudly.
-                session.execute(
-                    update(ShipmentRecord)
-                    .where(
-                        ShipmentRecord.id == shipment_id, ShipmentRecord.operation_lock == "CANCEL"
-                    )
-                    .values(operation_lock=None, operation_lock_at=None)
-                    .execution_options(synchronize_session=False)
-                )
-                repo.write_audit_log(
-                    entity_type="shipment",
-                    entity_id=str(shipment_id),
-                    action="PROVIDER_CANCELLED_AFTER_STATUS_CHANGE",
-                    actor=actor,
-                    before={"status": status.value},
-                    reason=reason,
-                    request_id=request_id,
-                )
-                conflict = True
-            else:
-                repo.write_audit_log(
-                    entity_type="shipment",
-                    entity_id=str(shipment_id),
-                    action=AuditAction.SHIPMENT_CANCELLED,
-                    actor=actor,
-                    before={"status": status.value},
-                    after={"status": result.status.value},
-                    reason=reason,
-                    request_id=request_id,
-                )
-                conflict = False
+        try:
+            conflict = self._record_cancelled(
+                shipment_id, status, lock, result.status, actor, reason, request_id
+            )
+        except Exception as exc:
+            # The carrier accepted the cancellation; our record did not follow. The lock is
+            # kept (expires after OPERATION_LOCK_TTL) so no second cancel is sent at once;
+            # the provider's own cancel webhook still reaches the shipment (G07).
+            logger.error(
+                "shipment %s cancelled at provider %s (%s) but could not be recorded: %s",
+                shipment_id,
+                code.value,
+                tracking,
+                type(exc).__name__,
+            )
+            self._audit_only(
+                shipment_id, actor, request_id, "PROVIDER_CANCEL_NOT_RECORDED", type(exc).__name__
+            )
+            raise PersistenceAfterProviderError(
+                f"shipment {shipment_id} ({tracking}) was cancelled at the provider but could "
+                "not be recorded"
+            ) from exc
         if conflict:
             logger.error(
                 "shipment %s: provider accepted cancel but status changed meanwhile", shipment_id
@@ -454,8 +428,69 @@ class ShippingApplication:
             )
         return self.get_shipment(shipment_id)
 
-    def _claim_operation(self, shipment_id: int, status: ShipmentStatus, name: str) -> None:
+    def _record_cancelled(
+        self,
+        shipment_id: int,
+        status: ShipmentStatus,
+        lock: str,
+        new_status: ShipmentStatus,
+        actor: Actor,
+        reason: str | None,
+        request_id: str | None,
+    ) -> bool:
+        """Write the cancellation only if nothing changed meanwhile. True on conflict."""
+        with self._sessions() as session, session.begin():
+            repo = ShippingRepository(session)
+            applied = session.execute(
+                update(ShipmentRecord)
+                .where(
+                    ShipmentRecord.id == shipment_id,
+                    ShipmentRecord.status == status.value,
+                    ShipmentRecord.operation_lock == lock,
+                )
+                .values(
+                    status=new_status.value,
+                    operation_lock=None,
+                    operation_lock_at=None,
+                    updated_at=self._clock(),
+                )
+                .execution_options(synchronize_session=False)
+            ).rowcount
+            if applied == 1:
+                repo.write_audit_log(
+                    entity_type="shipment",
+                    entity_id=str(shipment_id),
+                    action=AuditAction.SHIPMENT_CANCELLED,
+                    actor=actor,
+                    before={"status": status.value},
+                    after={"status": new_status.value},
+                    reason=reason,
+                    request_id=request_id,
+                )
+                return False
+            # The status changed while the carrier was cancelling (e.g. a webhook reported
+            # DELIVERED). Keep the recorded status; release our lock; flag it.
+            session.execute(
+                update(ShipmentRecord)
+                .where(ShipmentRecord.id == shipment_id, ShipmentRecord.operation_lock == lock)
+                .values(operation_lock=None, operation_lock_at=None)
+                .execution_options(synchronize_session=False)
+            )
+            repo.write_audit_log(
+                entity_type="shipment",
+                entity_id=str(shipment_id),
+                action="PROVIDER_CANCELLED_AFTER_STATUS_CHANGE",
+                actor=actor,
+                before={"status": status.value},
+                reason=reason,
+                request_id=request_id,
+            )
+            return True
+
+    def _claim_operation(self, shipment_id: int, status: ShipmentStatus, name: str) -> str:
+        """Take the operation lock; returns the per-request token that owns it."""
         now = self._clock()
+        token = f"{name}:{uuid.uuid4().hex[:16]}"
         with self._sessions() as session, session.begin():
             claimed = session.execute(
                 update(ShipmentRecord)
@@ -467,26 +502,27 @@ class ShippingApplication:
                         ShipmentRecord.operation_lock_at < now - OPERATION_LOCK_TTL,
                     ),
                 )
-                .values(operation_lock=name, operation_lock_at=now)
+                .values(operation_lock=token, operation_lock_at=now)
                 .execution_options(synchronize_session=False)
             ).rowcount
         if claimed != 1:
             raise OperationInProgressError(
                 f"shipment {shipment_id} has another operation in progress or changed status"
             )
+        return token
 
-    def _release_operation(self, shipment_id: int, name: str) -> None:
+    def _release_operation(self, shipment_id: int, token: str) -> None:
         try:
             with self._sessions() as session, session.begin():
                 session.execute(
                     update(ShipmentRecord)
-                    .where(ShipmentRecord.id == shipment_id, ShipmentRecord.operation_lock == name)
+                    .where(ShipmentRecord.id == shipment_id, ShipmentRecord.operation_lock == token)
                     .values(operation_lock=None, operation_lock_at=None)
                     .execution_options(synchronize_session=False)
                 )
         except Exception:
             # The lock expires after OPERATION_LOCK_TTL anyway.
-            logger.exception("could not release %s lock on shipment %s", name, shipment_id)
+            logger.exception("could not release lock %s on shipment %s", token, shipment_id)
 
     def _audit_only(
         self, shipment_id: int, actor: Actor, request_id: str | None, action: str, reason: str

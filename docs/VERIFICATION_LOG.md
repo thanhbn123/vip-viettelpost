@@ -22,3 +22,13 @@ Mỗi PR được một tác tử verifier **không viết mã đó** kiểm tr�
 | 7 | LOW | Lỗi bất ngờ trả 500 thô | Handler chung: JSON `internal_error` + `request_id`, không lộ chi tiết |
 
 Test hồi quy #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
+
+- Lần 2, HEAD `1bf3302`: 325 passed; 414 passed / 1 skipped (PG riêng). **PASS** → merge PR #8 (`051e535`). Còn lại, sửa ở PR G07:
+
+| # | Mức | Phát hiện | Xử lý (PR G07) |
+|---|---|---|---|
+| 1 | MEDIUM | Hãng đã nhận huỷ nhưng ghi CSDL hỏng → 500 chung, không audit, không log rõ | `PersistenceAfterProviderError` + log ERROR kèm mã vận đơn + audit `PROVIDER_CANCEL_NOT_RECORDED`; giữ khoá (không gửi huỷ lần hai ngay); webhook huỷ của VTP vẫn đưa vận đơn về `CANCELLED` |
+| 2 | LOW | `asyncio.CancelledError` giữa lúc gọi hãng không nhả khoá | Bắt `BaseException` để nhả khoá rồi ném lại |
+| 3 | LOW | Giá trị khoá luôn là `"CANCEL"` | Token riêng mỗi yêu cầu `CANCEL:<16 hex>`; ghi cuối so đúng token |
+| 4 | LOW | Phản hồi 500 thiếu header `X-Request-ID` | Handler 500 tự đặt header |
+| 5 | (ghi chú) | Downgrade về `base` trên PG hỏng FK khi đã có vận đơn | Đúng thiết kế: downgrade về base chỉ cho CSDL rỗng (dev/test); ghi vào rollback trong `DATABASE_SCHEMA.md` |
