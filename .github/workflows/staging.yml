@@ -1,0 +1,184 @@
+name: Staging
+
+# Controlled triggers only. Deploys an EXACT develop commit to the `staging` Environment.
+#  * workflow_dispatch: GitHub only offers it once this file is on the default branch (main);
+#    choose "Use workflow from: develop" - the Environment only allows develop/deploy/staging.
+#  * push to branch `deploy/staging`: works before that; the pushed commit must already be
+#    on develop (checked below). Point the branch at a develop commit to deploy it.
+# Fails closed: without a configured staging target (vars.STAGING_DEPLOY_METHOD) the
+# deploy job stops with STAGING_TARGET_MISSING before touching anything.
+# Never deploys production; never uses production credentials (VTP_BASE_URL must be dev).
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full 40-char commit SHA on develop to deploy"
+        required: true
+        type: string
+      run_vtp_dev_e2e:
+        description: "Run the Viettel Post DEVELOPMENT E2E check (read-only unless create is allowed)"
+        required: false
+        type: boolean
+        default: false
+      create_test_order:
+        description: "E2E: also create + cancel one DEV test order (also needs vars.VTP_E2E_ALLOW_CREATE=yes)"
+        required: false
+        type: boolean
+        default: false
+
+  push:
+    branches: ["deploy/staging"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging
+  cancel-in-progress: false
+
+env:
+  SHA: ${{ inputs.sha || github.sha }}
+
+jobs:
+  verify:
+    name: Verify exact develop SHA (lint + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: SHA is a full SHA contained in develop
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be a full 40-char SHA"; exit 1; }
+          test "$(git rev-parse HEAD)" = "$SHA"
+          git fetch --no-tags origin develop
+          git merge-base --is-ancestor "$SHA" origin/develop \
+            || { echo "::error::$SHA is not on develop"; exit 1; }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check app tests migrations scripts
+      - run: pytest -q
+      - name: Single migration head
+        run: |
+          set -euo pipefail
+          heads="$(alembic -c migrations/alembic.ini heads | wc -l)"
+          test "$heads" = "1" || { echo "::error::expected one migration head, got $heads"; exit 1; }
+
+  image:
+    name: Build image for the exact SHA
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - run: docker build -t "vip-shipping-gateway:staging-${SHA}" .
+      - name: Image checks (non-root, app imports)
+        run: |
+          set -euo pipefail
+          test "$(docker run --rm "vip-shipping-gateway:staging-${SHA}" id -u)" = "10001"
+          docker run --rm "vip-shipping-gateway:staging-${SHA}" python -c "import app.main"
+      - run: echo "Built image vip-shipping-gateway:staging-${SHA}" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy to staging (fails closed until a target is configured)
+    needs: image
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Staging target configured?
+        env:
+          METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
+          BASE_URL: ${{ vars.STAGING_BASE_URL }}
+          VTP_BASE_URL: ${{ vars.VTP_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${METHOD}" ] || [ -z "${BASE_URL}" ]; then
+            echo "::error::STAGING_TARGET_MISSING: set vars.STAGING_DEPLOY_METHOD and vars.STAGING_BASE_URL in Environment 'staging' (docs/STAGING_DEPLOYMENT.md)"
+            exit 1
+          fi
+          case "${BASE_URL}" in https://*) ;; *) echo "::error::STAGING_BASE_URL must be https://"; exit 1;; esac
+          if [ -n "${VTP_BASE_URL}" ] && [ "${VTP_BASE_URL%/}" != "https://partnerdev.viettelpost.vn" ]; then
+            echo "::error::VTP_BASE_URL must be the Viettel Post DEVELOPMENT URL in staging"; exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - name: Deploy
+        env:
+          METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
+        run: |
+          # The deploy mechanism depends on the staging target the owner chooses
+          # (docs/STAGING_DEPLOYMENT.md §"Target"). No mechanism is implemented until then,
+          # so this step refuses rather than guessing a host.
+          echo "::error::deploy method '${METHOD}' is not implemented yet (STAGING_TARGET_MISSING)"
+          exit 1
+      - name: Wait for readiness
+        env:
+          BASE_URL: ${{ vars.STAGING_BASE_URL }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${BASE_URL%/}/health/ready" || true)"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "::error::/health/ready did not return 200"; exit 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-dev.txt
+      - name: Smoke test (read-only)
+        env:
+          SMOKE_BASE_URL: ${{ vars.STAGING_BASE_URL }}
+          SMOKE_API_KEY: ${{ secrets.SMOKE_API_KEY }}
+        run: python scripts/smoke_test.py
+      - run: echo "Deployed ${SHA} to staging ($(date -u +%FT%TZ))" >> "$GITHUB_STEP_SUMMARY"
+
+  vtp-dev-e2e:
+    name: Viettel Post DEVELOPMENT E2E
+    # dispatch: input; push: vars.RUN_VTP_DEV_E2E == 'true' (read-only unless create allowed)
+    if: ${{ inputs.run_vtp_dev_e2e || (github.event_name == 'push' && vars.RUN_VTP_DEV_E2E == 'true') }}
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Scenario
+        env:
+          SCENARIO: ${{ vars.VTP_E2E_SCENARIO_JSON }}
+        run: |
+          set -euo pipefail
+          [ -n "${SCENARIO}" ] || { echo "::error::vars.VTP_E2E_SCENARIO_JSON is not set"; exit 1; }
+          printf '%s' "${SCENARIO}" > "${RUNNER_TEMP}/scenario.json"
+      - name: Run (credentials from Environment secrets, never printed)
+        env:
+          VTP_BASE_URL: https://partnerdev.viettelpost.vn
+          VTP_USERNAME: ${{ secrets.VTP_USERNAME }}
+          VTP_PASSWORD: ${{ secrets.VTP_PASSWORD }}
+          VTP_TOKEN: ${{ secrets.VTP_TOKEN }}
+          VTP_E2E_SCENARIO: ${{ runner.temp }}/scenario.json
+          VTP_E2E_ALLOW_CREATE: ${{ vars.VTP_E2E_ALLOW_CREATE }}
+          CREATE: ${{ inputs.create_test_order || (github.event_name == 'push' && vars.VTP_E2E_CREATE_TEST_ORDER == 'yes') }}
+        run: |
+          set -uo pipefail
+          args=()
+          [ "${CREATE}" = "true" ] && args+=(--create)
+          python -m scripts.vtp_dev_e2e "${args[@]}" --evidence "${RUNNER_TEMP}/evidence.json"
+          rc=$?
+          cat "${RUNNER_TEMP}/evidence.json" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          exit $rc

@@ -1,0 +1,14 @@
+{
+  "_comment": "Example only. Replace location IDs with real Viettel Post catalogue IDs for your DEV test addresses. Use test contact data, never a real customer.",
+  "sender": {"name": "VIP Test Sender", "phone": "0900000000", "address_line": "Test address", "province": "Test province"},
+  "receiver": {"name": "VIP Test Receiver", "phone": "0900000001", "address_line": "Test address", "province": "Test province"},
+  "packages": [{"weight_grams": 500}],
+  "cod_amount": null,
+  "service_code": null,
+  "order_id_prefix": "VIP-E2E-",
+  "provider_options": {
+    "sender_location": {"province_id": 1, "district_id": null, "ward_id": 1},
+    "receiver_location": {"province_id": 1, "district_id": null, "ward_id": 1},
+    "order_payment": null
+  }
+}
