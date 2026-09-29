@@ -61,3 +61,17 @@ Test F1 và F3 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
 | 3 | LOW | Danh sách sắp theo `created_at` không có index; mỗi trang đếm toàn bộ | Index `(created_at, id)` ở G13 |
 | 4 | INFO | Cờ xem xét tay không bao giờ tự hết | Đã ghi trong `API.md`; cần quyết định nghiệp vụ (R-012) |
 | 5 | INFO | Test savepoint của PR không phủ ca ghi dở/transaction PG hỏng | Bổ sung test ở G13 |
+
+## PR #14 — G10 COD / fee / reconciliation
+
+- Lần 1, HEAD `d1eee6a`: 358 passed (SQLite); 480 passed / 1 skipped (PG riêng). 20 luồng `add_fee` đồng thời: `actual_fee` = tổng dòng ở cả hai CSDL. **FAIL**:
+
+| # | Mức | Phát hiện | Xử lý |
+|---|---|---|---|
+| 1 | HIGH | Nộp lần hai sau `REMITTED` giữ `REMITTED` trong khi số nộp ≠ số thu | `REMITTED` chặn nộp tiếp (409); trạng thái suy lại từ ba con số sau mỗi lần ghi |
+| 2 | MEDIUM | Số nộp vượt số thu; số thu hạ dưới số đã nộp | 422 cả hai chiều |
+| 3 | LOW | Tổng phí vượt `NUMERIC(18,2)` → 500 | Bọc thành `FinanceError` → 422 |
+| 4 | LOW | Đối soát COD trên vận đơn không COD coi dự kiến = 0 | 422, như các thao tác COD khác |
+| 5 | INFO | COD vận đơn huỷ; thời điểm tương lai; chung mã audit điều chỉnh/chốt | Ghi vào `FINANCE.md` / R-011 |
+
+Test #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
