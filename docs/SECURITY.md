@@ -65,7 +65,7 @@ Tài liệu yêu cầu phản hồi **< 1 giây**; pipeline không gọi mạng.
 - Fingerprint = SHA-256 của `VIETTEL_POST | ORDER_NUMBER | ORDER_STATUS | ORDER_STATUSDATE` (chuỗi ngày giữ nguyên, chỉ gộp khoảng trắng). Khoá idempotency = `VIETTEL_POST:<fingerprint>`.
 - Cố ý **không** đưa vào fingerprint: `TOKEN`, `NOTE`, `STATUS_NAME`, vị trí, `MONEY_*`, thông tin bưu tá, `POD`, `REASON_CODE`, giờ nhận — các trường có thể khác nhau giữa hai lần gửi cùng một chuyển trạng thái.
 - Thiếu `ORDER_STATUSDATE` → dự phòng: băm toàn bộ `DATA` đã chuẩn hoá (khoá sắp xếp), để hai lần cùng một mã trạng thái ở hai thời điểm không bị gộp nhầm.
-- `IdempotencyStore.claim()` phải là **set-if-absent nguyên tử** (ví dụ `INSERT` trên cột `UNIQUE`). Bản in-memory hiện tại chỉ dùng cho test/dev: mất khi khởi động lại, không chia sẻ giữa nhiều worker → **chưa đủ cho staging/production**.
+- Claim phải là **set-if-absent nguyên tử**. Từ G05 route dùng `SqlWebhookSink` (`app/webhooks/sql_sink.py`): `INSERT` trên UNIQUE `(provider_id, fingerprint)` của `shipping_webhook_events`, một transaction mỗi lần giao; lỗi được ghi `FAILED` (chỉ tên lớp lỗi) ở transaction riêng và lần gửi lại của VTP được xử lý lại. Bản in-memory (`InMemoryWebhookSink`) chỉ còn cho test/dev.
 
 ### Phát lại (replay)
 

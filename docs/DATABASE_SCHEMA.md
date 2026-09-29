@@ -184,7 +184,9 @@ Khác biệt đã biết:
 
 ## 12. Ghi chú tích hợp (Integration notes)
 
-### DOMAIN/DB MAPPING DRIFT WITH W-SHP-01: **YES**
+### DOMAIN/DB MAPPING DRIFT WITH W-SHP-01: **YES** — đã hoà giải ở G05
+
+> G05 (`integration/cr-shp-001`): các điểm dưới đây được xử lý trong `app/repositories/mappers.py` và migration `shp_0002_webhook_processing` (sự kiện không canonical, giờ không múi giờ, cột xử lý webhook, gieo `VIETTEL_POST`). Xem `docs/INTEGRATION_NOTES.md` và `docs/DECISIONS.md` D-005…D-015.
 
 So với `feature/shp-core-domain` @ `8515be2e8a351cec548d530173503e8ee21e7a34` (không merge, không cherry-pick, chỉ đọc bằng `git show`). Nhánh này dựng trên baseline `3b89b36`, nên repository trả **bản ghi ORM**, không trả DTO domain. Integration Worker cần khớp:
 

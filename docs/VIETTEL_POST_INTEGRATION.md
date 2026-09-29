@@ -134,7 +134,11 @@ Mọi thông điệp lỗi đi qua `redact()`: che token, username, password đ�
 | Header `Cookie: SERVERID=...` trong cURL mẫu | Không gửi | Không nằm trong bảng header bắt buộc của trang "Môi trường và tham số chung". |
 | Gọi thử thật trên `partnerdev` | Chưa làm | Không có credential test; mọi test dùng mock HTTP. |
 
-## Type drift với W-SHP-01 (PR #1, HEAD `8515be2e8a351cec548d530173503e8ee21e7a34`)
+## Type drift với W-SHP-01 (PR #1, HEAD `8515be2e8a351cec548d530173503e8ee21e7a34`) — đã hoà giải ở G05
+
+> G05: `ViettelPostProvider` nay theo hợp đồng typed; lớp dict ở trên chuyển sang `ViettelPostApi` (`app/providers/viettel_post/api.py`, nội bộ adapter). Trường riêng VTP đi qua `provider_options` → `ViettelPostOptions` (`options.py`): `sender_location`/`receiver_location` (ID số), `product_type` (mặc định `HH`), `price_table_type` (mặc định `1`), `order_payment` (bắt buộc, không mặc định), `extra_service_codes`, `product_name`, `product_quantity`, `product_price_vnd`, `items`. `VTP_BASE_URL` mặc định là môi trường development. Xem `docs/INTEGRATION_NOTES.md`, D-002…D-004, D-007, D-010, D-013, D-017.
+
+Bảng dưới giữ nguyên để truy vết.
 
 Nhánh này xuất phát từ baseline `3b89b36` và giữ contract `dict` của baseline. PR #1 đổi `ShippingProvider` sang DTO có kiểu (`app/providers/base/dto.py`). Integration Worker cần nối:
 

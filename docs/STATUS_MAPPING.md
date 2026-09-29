@@ -88,6 +88,6 @@ Mã không biết **không phải** payload hỏng. `ORDER_STATUS` sai kiểu (b
 ### Điểm cần xác minh với Viettel Post
 
 - 104 có phải trạng thái cuối không (mâu thuẫn bảng ↔ Lưu ý).
-- Múi giờ của `ORDER_STATUSDATE` (tài liệu không nêu; mã nguồn giữ datetime **không múi giờ**).
+- Múi giờ của `ORDER_STATUSDATE` (tài liệu không nêu). Từ G05 (D-006): `occurred_at` để trống, giữ chữ gốc ở `occurred_at_raw`, luôn có `received_at`; bật `VTP_WEBHOOK_TIMEZONE` chỉ sau khi VTP xác nhận.
 - Danh sách mã có đầy đủ không; mã ngoài bảng có thể xuất hiện ở thực tế (đã có chính sách mã không biết).
 - Nghĩa nghiệp vụ của 505/508/550/503 để quyết có gán canonical hay cần thêm canonical mới (cần duyệt nghiệp vụ, đổi `ShipmentStatus` là việc của W-SHP-01).
