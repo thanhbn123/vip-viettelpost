@@ -86,6 +86,10 @@ Chủ dự án chốt 2026-09-30: target staging = **một VPS Linux riêng** (k
 - Triển khai lại một SHA cũ **qua workflow** sẽ dừng ở `migrate` nếu CSDL đã ở revision mới hơn mà ảnh cũ không biết (`alembic` báo lỗi) — đúng kiểu fail closed. Muốn quay về bản cũ thì dùng phase `rollback`.
 - Rollback chỉ lùi **một** bước (`previous_sha` bị xoá sau khi dùng) để không nhảy qua lại. Không có biến chọn SHA rollback tuỳ ý: quay về SHA khác thì triển khai SHA đó qua workflow.
 - Mỗi phase (trừ `logs`) giữ khoá `$STAGING_APP_DIR/state/lock` (thư mục + PID): một phase mồ côi của lần chạy bị huỷ còn sống thì phase sau báo `LOCKED` và dừng; khoá của tiến trình đã chết được lấy lại.
+- **Giới hạn còn lại (verifier PR #36 vòng 2, LOW, cố ý chưa xử):**
+  - *Huỷ run giữa `start`*: phase `start` mồ côi trên VPS thường vẫn đang đợi readiness, nên bước `rollback` báo `LOCKED` (không chạy đua). Sau đó phase mồ côi có thể chạy xong và để lại một bản **chưa qua acceptance** đang chạy; job vẫn đỏ. Rollback tự động **không** khôi phục được ca huỷ — người xem `state/history.log` rồi triển khai lại.
+  - *Lấy lại khoá*: khoá không có file PID bị coi là cũ; về lý thuyết hai phase khởi động cách nhau vài micro-giây có thể cùng giữ khoá. Nhóm `concurrency: staging` của workflow đã chặn hai run song song, nên ca này thực tế không xảy ra.
+  - *`docker rename` hỏng sau khi đã xoá container cũ*: bản mới chạy dưới tên `vip-staging-app-next`, `start` thoát 1, `rollback` xoá nó và báo `ROLLBACK_NOOP` → staging không còn bản nào chạy (thấy được, job đỏ) cho tới khi có người xử.
 - Ảnh cũ và file env cũ được giữ trên VPS (không prune tự động) để rollback còn chạy được; dọn đĩa là việc của chủ VPS.
 
 ### Chuẩn bị VPS (chủ dự án làm một lần)
