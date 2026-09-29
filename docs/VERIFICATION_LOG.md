@@ -120,3 +120,21 @@ Test #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
 | 3 | LOW | Test vị từ chỉ tìm chuỗi | So đúng tập `{DRAFT, CANCELLED}` |
 | 4 | LOW | Header 413 là bản chép tay | Dùng chung `SECURITY_HEADERS`; test kiểm đủ |
 | 5 | LOW | Test PG có thể lặng lẽ bị bỏ qua nếu CI mất biến | `REQUIRE_POSTGRES=1` trong job `postgres` → thiếu URL là hỏng |
+
+## PR #22 — G14 Staging preparation
+
+- Lần 1, HEAD `9f54ed7`: 408 passed / 10 skipped; 552 passed / 1 skipped. Chạy thật uvicorn + PG 16.15 theo đúng runbook: migration `current`/`history`/`upgrade head` → `shp_0004 (head)`; smoke 9/9 (exit 0) khi cấu hình đúng, exit 1 khi thiếu `API_KEYS` (5/9) hoặc `WEBHOOK_SHARED_SECRET` (7/9); không đổi dòng nào trong 11 bảng; readiness 503 khi CSDL ở `shp_0003`. **PASS**, kèm (sửa trước merge):
+
+| # | Mức | Phát hiện | Xử lý |
+|---|---|---|---|
+| M1 | MEDIUM | `pg_dump "$DATABASE_URL_PSQL"` dùng biến không định nghĩa → chưa đặt thì dump nhầm CSDL mặc định mà vẫn báo thành công | Định nghĩa biến (dạng libpq), `: "${…:?}"`, `set -euo pipefail`, kiểm bản dump bằng `pg_restore --list` |
+| M2 | MEDIUM | Lùi mã và schema gắn nhau (readiness đòi đúng head) mà runbook không nói | Bảng thứ tự rollback: ngưng tải → sao lưu → lùi schema → ảnh cũ → ready → mở tải |
+| L1 | LOW | Điều kiện từ chối downgrade thiếu `occurred_at` | Ghi đúng; nêu rõ thực tế không lùi được qua shp_0002 khi có dữ liệu |
+| L2 | LOW | `-x db_url=` lộ mật khẩu trong `ps` | Dùng biến môi trường `DATABASE_URL` |
+| L3 | LOW | Key thô in ra màn hình / vào lịch sử shell | Cảnh báo; nhập key bằng `read` không vang |
+| L4 | LOW | Readiness 200 khi thiếu `API_KEYS` | Thêm kiểm `api_keys` vào readiness |
+| L5 | LOW | Access log uvicorn không phải JSON | Ghi rõ, gợi ý `--no-access-log` |
+| L6 | LOW | `APP_ENV` không có tác dụng | Ghi rõ trong bảng biến |
+| L7 | LOW | Kiểm "không lộ nội bộ" của smoke chỉ phủ 404 | Ghi rõ phạm vi |
+| L8 | LOW | Thước đo không có lệnh chạy; smoke chạy từ đâu | Job in thước đo và thoát mã 3 khi > 0; hướng dẫn chạy smoke từ checkout |
+- Lần 2, HEAD `c863d8d`: 409 passed / 10 skipped; 554 passed / 1 skipped. Khối §4 chạy nguyên văn: thiếu biến → dừng (bash và zsh), đủ biến → dump được `pg_restore --list` nhận, `current` = `shp_0004 (head)`; readiness 503 khi thiếu `API_KEYS`; §5 đúng (D-015 từ chối như mô tả). **FAIL**: H1 **HIGH** — `python -m app.jobs.replay_webhooks` luôn lỗi `NameError` (khối `__main__` đứng trước hàm mới gọi) → mọi lần chạy theo lịch thoát 1. Sửa: đưa khối `__main__` xuống cuối; test chạy đúng lệnh `-m` bằng subprocess (hỏng trên mã cũ) + test mã thoát 3. LOW: §4 chỉ an toàn khi chạy dạng file (ghi rõ); dump ghi ngoài repo + `.gitignore` chặn `*.dump`, ưu tiên `~/.pgpass`; thêm `DATABASE_URL_PSQL` vào bảng biến.

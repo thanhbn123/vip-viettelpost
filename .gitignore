@@ -16,3 +16,7 @@ htmlcov/
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Database dumps contain real data
+*.dump
+*.sql.gz
