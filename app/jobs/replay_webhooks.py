@@ -53,8 +53,12 @@ def main() -> None:  # pragma: no cover - thin CLI wrapper
     from app.webhooks.dependencies import get_webhook_applier
 
     logging.basicConfig(level=logging.INFO)
-    count = replay_pending(get_session_factory(), get_webhook_applier())
-    logger.info("replayed %s webhook event(s)", count)
+    sessions = get_session_factory()
+    count = replay_pending(sessions, get_webhook_applier())
+    remaining = unmatched_with_shipment(sessions)
+    logger.info("replayed %s webhook event(s); unmatched_with_shipment=%s", count, remaining)
+    # Non-zero exit lets the scheduler alert when events stay unattached after a run.
+    raise SystemExit(0 if remaining == 0 else 3)
 
 
 if __name__ == "__main__":  # pragma: no cover

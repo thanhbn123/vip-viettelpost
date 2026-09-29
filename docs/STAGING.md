@@ -17,14 +17,15 @@ Bí mật lấy từ kho bí mật của nền tảng (GitHub Environment `stagi
 
 | Biến | Bí mật? | Giá trị staging |
 |---|---|---|
-| `APP_ENV` | không | `staging` |
+| `APP_ENV` | không | `staging` (chỉ để nhận diện; mã hiện **không** đọc biến này — không có chốt chặn nào dựa vào nó) |
 | `DATABASE_URL` | **có** | `postgresql+psycopg://<user>:<pass>@<host>:5432/<db_staging>` |
 | `VTP_BASE_URL` | không | `https://partnerdev.viettelpost.vn` (**không** dùng production) |
 | `VTP_USERNAME` / `VTP_PASSWORD` **hoặc** `VTP_TOKEN` | **có** | Tài khoản **development** do VTP cấp (R-001: chưa có) |
 | `VTP_TIMEOUT_SECONDS` | không | `20` |
 | `VTP_WEBHOOK_TIMEZONE` | không | **để trống** tới khi VTP xác nhận múi giờ (D-006, R-002) |
 | `WEBHOOK_SHARED_SECRET` | **có** | Chuỗi ngẫu nhiên ≥ 32 ký tự; đăng ký cùng giá trị với VTP làm `TOKEN` |
-| `API_KEYS` | **có** (dạng băm) | `<id>:<sha256>` sinh bằng `python -m app.tools.api_key <id>`; key thô giao qua kênh bí mật |
+| `API_KEYS` | **có** (dạng băm) | `<id>:<sha256>` sinh bằng `python -m app.tools.api_key <id>` — lệnh **in key thô ra màn hình**: chỉ chạy trên terminal tin cậy, không chạy trong CI hay nơi log bị thu; key thô giao qua kênh bí mật |
+| `DB_CONNECT_TIMEOUT_SECONDS` | không | `5` |
 | `LOG_FORMAT` / `LOG_LEVEL` | không | `json` / `INFO` |
 | `PROVIDER_RETRY_*`, `API_MAX_BODY_BYTES`, `WEBHOOK_MAX_BODY_BYTES` | không | mặc định |
 
@@ -38,34 +39,46 @@ Bí mật lấy từ kho bí mật của nền tảng (GitHub Environment `stagi
 
 ## 4. Quy trình migration (trước khi bật ứng dụng)
 
+Chạy từ bản checkout đúng commit sẽ triển khai (hoặc trong ảnh đó), với `DATABASE_URL` đã nạp từ kho bí mật vào **biến môi trường** (không truyền qua `-x db_url=…`: tham số dòng lệnh hiện trong `ps`). `migrations/env.py` tự đọc `DATABASE_URL`.
+
 ```bash
-# 1. Sao lưu (staging mới thì bỏ qua)
-pg_dump --format=custom --file=before-$(date +%Y%m%d%H%M).dump "$DATABASE_URL_PSQL"
+set -euo pipefail
+# 0. Chuỗi kết nối cho công cụ libpq (pg_dump KHÔNG hiểu dạng "postgresql+psycopg://").
+#    Đặt từ kho bí mật, dạng postgresql://<user>:<pass>@<host>:5432/<db>, hoặc dùng PG* + ~/.pgpass.
+: "${DATABASE_URL_PSQL:?chua dat DATABASE_URL_PSQL}"
+: "${DATABASE_URL:?chua dat DATABASE_URL}"
+# 1. Sao lưu và KIỂM bản sao lưu (staging mới, CSDL rỗng thì vẫn chạy để có mốc)
+f="before-$(date +%Y%m%d%H%M).dump"
+pg_dump --format=custom --file="$f" --dbname="$DATABASE_URL_PSQL"
+pg_restore --list "$f" > /dev/null
 # 2. Xem trước
-alembic -c migrations/alembic.ini -x db_url="$DATABASE_URL" current
-alembic -c migrations/alembic.ini -x db_url="$DATABASE_URL" history
+alembic -c migrations/alembic.ini current
+alembic -c migrations/alembic.ini history
 # 3. Nâng
-alembic -c migrations/alembic.ini -x db_url="$DATABASE_URL" upgrade head
-# 4. Kiểm: phải in shp_0004_shipments_created_index (head)
-alembic -c migrations/alembic.ini -x db_url="$DATABASE_URL" current
+alembic -c migrations/alembic.ini upgrade head
+# 4. Kiểm: phải in "shp_0004_shipments_created_index (head)"
+alembic -c migrations/alembic.ini current
 ```
 
-Ứng dụng **không bao giờ** tự tạo/sửa schema. `/health/ready` trả 503 nếu revision ≠ head của mã.
+Ứng dụng **không bao giờ** tự tạo/sửa schema. `/health/ready` trả 503 nếu revision CSDL ≠ head của mã đang chạy.
 
 ## 5. Rollback
 
-| Mức | Cách |
+**Mã và schema gắn với nhau:** readiness đòi revision CSDL **bằng đúng** head của mã. Lùi một phía mà không lùi phía kia → dịch vụ 503 (không nhận tải) cho tới khi hai bên khớp. Vì vậy:
+
+| Mức | Thứ tự |
 |---|---|
-| Mã | Triển khai lại ảnh/commit trước (`develop` ghi SHA từng lần merge trong `docs/MASTER_STATUS.md`) |
-| Schema | Lùi **từng revision**: `alembic ... downgrade shp_0003_active_order_guard` (bỏ index), `... downgrade shp_0002_webhook_processing` (bỏ khoá thao tác + index một phần), `... downgrade shp_0001_shipping_gateway` (**từ chối** nếu còn sự kiện không canonical — D-015). Không downgrade về `base` khi có dữ liệu |
-| Dữ liệu | Khôi phục từ bản `pg_dump` bước 4.1 |
+| Chỉ lùi mã, schema giữ nguyên | Chỉ làm khi bản mã cũ có **cùng** head migration; nếu không, làm theo dòng dưới |
+| Lùi mã **và** schema | 1) Ngưng nhận tải (tắt route ở proxy / scale 0) và tạm dừng job replay. 2) Sao lưu + kiểm (§4 bước 1). 3) Lùi schema **từng revision** tới head của bản mã cũ. 4) Triển khai ảnh cũ. 5) `/health/ready` = 200 + smoke test. 6) Mở lại tải. Webhook VTP bị từ chối trong lúc ngưng sẽ được VTP gửi lại (tối đa 5 lần) — giữ cửa sổ ngắn |
+| Các bước lùi schema | `alembic … downgrade shp_0003_active_order_guard` (bỏ index danh sách) → `… downgrade shp_0002_webhook_processing` (bỏ khoá thao tác + index một phần) → `… downgrade shp_0001_shipping_gateway` **bị từ chối** khi còn sự kiện không có canonical **hoặc không có `occurred_at`** (D-015). Khi `VTP_WEBHOOK_TIMEZONE` để trống thì mọi sự kiện VTP đều không có `occurred_at` → trên thực tế **không lùi được qua shp_0002** khi đã có dữ liệu; phải khôi phục từ bản sao lưu. Không bao giờ downgrade về `base` khi có dữ liệu |
+| Dữ liệu | `pg_restore` từ bản đã kiểm ở §4 bước 1 |
 
 ## 6. Kiểm tra sức khoẻ
 
 - Liveness: `GET /health` → 200.
-- Readiness: `GET /health/ready` → 200 khi CSDL kết nối được, migration đúng head, có `WEBHOOK_SHARED_SECRET`, có credential VTP. Trả 503 kèm tên kiểm tra hỏng (không lộ giá trị).
+- Readiness: `GET /health/ready` → 200 khi CSDL kết nối được, migration đúng head, có `WEBHOOK_SHARED_SECRET`, có `API_KEYS` hợp lệ, có credential VTP. Trả 503 kèm tên kiểm tra hỏng (không lộ giá trị).
 - Số đo: `GET /metrics` (cần `X-API-Key`).
-- Giám sát: `unmatched_with_shipment()` giữ > 0 qua nhiều lần đo → job replay hỏng (`OBSERVABILITY.md`).
+- Giám sát: mỗi lần chạy `python -m app.jobs.replay_webhooks` ghi `unmatched_with_shipment=<n>` và **thoát mã 3** khi n > 0 — bộ lập lịch cảnh báo khi mã ≠ 0 lặp lại nhiều lần liền (một lần lẻ có thể là hãng còn đang thử lại).
 
 ## 7. Checklist triển khai
 
@@ -79,16 +92,22 @@ alembic -c migrations/alembic.ini -x db_url="$DATABASE_URL" current
 - [ ] Ứng dụng khởi động; `/health/ready` = 200
 - [ ] `python scripts/smoke_test.py` = 9/9 PASS
 - [ ] Job `replay_webhooks` được lên lịch 5 phút
-- [ ] Log JSON không có bí mật (lọc che bật sẵn); kiểm vài dòng thật
+- [ ] Log ứng dụng JSON không có bí mật (lọc che bật sẵn); kiểm vài dòng thật. Access log của uvicorn vẫn là chữ thường (không qua lớp che, chỉ có đường dẫn) — tắt bằng `--no-access-log` nếu proxy đã ghi access log
 - [ ] Ghi SHA đã triển khai + kết quả smoke vào `docs/MASTER_STATUS.md` (G15)
 
 ## 8. Smoke test
 
+Chạy từ bản checkout repo (ảnh Docker không chứa `scripts/`) sau `pip install -r requirements-dev.txt`. Nhập key không để lại lịch sử shell:
+
 ```bash
-SMOKE_BASE_URL=https://<staging-host> SMOKE_API_KEY=<key thô> python scripts/smoke_test.py
+export SMOKE_BASE_URL=https://<staging-host>
+stty -echo; printf "API key: "; read SMOKE_API_KEY; stty echo; echo
+export SMOKE_API_KEY
+python scripts/smoke_test.py
+unset SMOKE_API_KEY
 ```
 
-Chỉ đọc: không tạo/huỷ vận đơn, không gọi Viettel Post. 9 kiểm tra: liveness, readiness, header bảo mật, API từ chối khi thiếu key, API nhận key và `VIETTEL_POST` bật, danh sách vận đơn, `/metrics` sau key, webhook từ chối `TOKEN` sai (không ghi gì), lỗi không lộ nội bộ. Bản thân script có test chạy trên ứng dụng thật trong tiến trình (`tests/integration/test_smoke_script.py`).
+Chỉ đọc (verifier PR #22 đo: số dòng 11 bảng không đổi trước/sau): không tạo/huỷ vận đơn, không gọi Viettel Post. 9 kiểm tra: liveness, readiness, header bảo mật, API từ chối khi thiếu key, API nhận key và `VIETTEL_POST` bật, danh sách vận đơn, `/metrics` sau key, webhook từ chối `TOKEN` sai (không ghi gì), lỗi không lộ nội bộ (chỉ kiểm được đường 404; lỗi 5xx được phủ bằng test tự động, không bằng smoke). Bản thân script có test chạy trên ứng dụng thật trong tiến trình (`tests/integration/test_smoke_script.py`).
 
 ## 9. Kiểm tra chấp nhận staging (G15) — khi có môi trường
 

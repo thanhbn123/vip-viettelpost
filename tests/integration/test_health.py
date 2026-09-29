@@ -18,6 +18,9 @@ def test_ready_when_migrated_and_configured(migrated_url, monkeypatch):
     monkeypatch.setattr(health, "get_engine", lambda: engine)
     monkeypatch.setattr(settings, "webhook_shared_secret", "whk-test-not-real")
     monkeypatch.setattr(settings, "vtp_token", "eyJfake.not.real")
+    from app.api.auth import hash_key
+
+    monkeypatch.setattr(settings, "api_keys", f"ready:{hash_key('ready-test-key-not-real-000000')}")
     with TestClient(app) as client:
         response = client.get("/health/ready")
     engine.dispose()
@@ -96,3 +99,12 @@ def test_broken_migration_tree_is_not_ready_not_500(monkeypatch):
     monkeypatch.setattr(health, "expected_head", broken)
     checks = health.readiness_checks(engine=make_engine("sqlite://"))
     assert checks["migration_scripts"]["ok"] is False
+
+
+def test_not_ready_without_api_keys(migrated_url, monkeypatch):
+    engine = make_engine(migrated_url)
+    monkeypatch.setattr(health, "get_engine", lambda: engine)
+    monkeypatch.setattr(settings, "api_keys", None)
+    checks = health.readiness_checks()
+    engine.dispose()
+    assert checks["api_keys"]["ok"] is False

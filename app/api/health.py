@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from app.api.auth import require_api_key
+from app.api.auth import parse_api_keys, require_api_key
 from app.core.config import settings
 from app.core.database import get_engine
 from app.core.metrics import metrics
@@ -47,6 +47,8 @@ def readiness_checks(engine=None) -> dict[str, dict]:
         checks["database"] = {"ok": False, "error": type(exc).__name__}
         checks["migrations"] = {"ok": False, "expected": head}
     checks["webhook_secret"] = {"ok": bool(settings.webhook_shared_secret)}
+    # Without API keys every protected route answers 503: not ready (verifier PR #22 L4).
+    checks["api_keys"] = {"ok": bool(parse_api_keys(settings.api_keys))}
     checks["provider_credentials"] = {
         "ok": bool(settings.vtp_token or (settings.vtp_username and settings.vtp_password))
     }
