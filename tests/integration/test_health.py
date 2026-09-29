@@ -57,3 +57,42 @@ def test_metrics_endpoint():
     with TestClient(app) as client:
         body = client.get("/metrics").json()
     assert set(body) == {"counters", "timings"}
+
+
+def test_unexpected_error_log_line_carries_the_request_id():
+    import logging
+
+    from app.api.dependencies import get_application
+    from app.core.logging import RequestIdFilter
+
+    class Broken:
+        def get_shipment(self, shipment_id):
+            raise RuntimeError("boom")
+
+    seen = []
+
+    class Capture(logging.Handler):
+        def emit(self, record):
+            seen.append(getattr(record, "request_id", None))
+
+    handler = Capture()
+    handler.addFilter(RequestIdFilter())  # evaluated at emit time, like production
+    logger = logging.getLogger("app.api.errors")
+    logger.addHandler(handler)
+    app.dependency_overrides[get_application] = lambda: Broken()
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            client.get("/api/v1/shipping/shipments/1", headers={"X-Request-ID": "rid-log"})
+    finally:
+        logger.removeHandler(handler)
+        app.dependency_overrides.pop(get_application, None)
+    assert "rid-log" in seen
+
+
+def test_broken_migration_tree_is_not_ready_not_500(monkeypatch):
+    def broken():
+        raise RuntimeError("multiple heads")
+
+    monkeypatch.setattr(health, "expected_head", broken)
+    checks = health.readiness_checks(engine=make_engine("sqlite://"))
+    assert checks["migration_scripts"]["ok"] is False

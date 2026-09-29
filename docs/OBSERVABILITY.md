@@ -12,7 +12,8 @@
 
 - Mỗi dòng mang `request_id` (header `X-Request-ID`, hoặc sinh mới).
 - `LOG_FORMAT=json` cho log có cấu trúc (`time`, `level`, `logger`, `request_id`, `message`); mặc định `text`. `LOG_LEVEL` mặc định `INFO`.
-- Lưới an toàn che bí mật: chuỗi dạng JWT và mọi giá trị bí mật đã cấu hình (`VTP_PASSWORD`, `VTP_TOKEN`, `WEBHOOK_SHARED_SECRET`) bị thay bằng `***` trước khi ghi. Mã vẫn không được log bí mật — đây chỉ là lớp thứ hai.
+- Lưới an toàn che bí mật: chuỗi dạng JWT và mọi giá trị bí mật đã cấu hình (`VTP_PASSWORD`, `VTP_TOKEN`, `WEBHOOK_SHARED_SECRET`) bị thay bằng `***` trong thông điệp **và traceback** trước khi ghi. Mã vẫn không được log bí mật — đây chỉ là lớp thứ hai. Log JSON có trường `exc` (traceback đã che).
+- Giới hạn: logger riêng của uvicorn (`uvicorn.access`, `uvicorn.error`, không lan lên root) không qua lớp che và không có `request_id`; access log của uvicorn chỉ có đường dẫn, không có thân yêu cầu.
 - Cuộc gọi nhà vận chuyển: `provider_call provider=… op=… attempt=… outcome=… duration_ms=…`; thử lại: `provider_retry …`.
 - Webhook: số đếm `webhook_events{provider,result}` và thời lượng `webhook_processing_seconds`.
 
@@ -24,7 +25,8 @@
 | `create_shipment`, `cancel_shipment` | **Không bao giờ** tự thử lại | Sau timeout kết quả không rõ; thử mù có thể tạo/huỷ hai lần (D-023, D-028) |
 | Bị từ chối, lỗi xác thực, phản hồi lạ | Không | Thử lại không đổi kết quả |
 
-Timeout mỗi yêu cầu: `VTP_TIMEOUT_SECONDS` (20 s). Không có vòng thử vô hạn.
+Timeout mỗi yêu cầu: `VTP_TIMEOUT_SECONDS` (20 s). Không có vòng thử vô hạn. Trường hợp xấu nhất của một lệnh chỉ-đọc có thử lại: 3 × 20 s + 0,2 s + 0,4 s ≈ 60,6 s — proxy phía trước nên đặt timeout lớn hơn, hoặc giảm `VTP_TIMEOUT_SECONDS`/số lần thử.
+Kết nối PostgreSQL có `connect_timeout` = `DB_CONNECT_TIMEOUT_SECONDS` (5 s): máy CSDL im lặng không giữ readiness/yêu cầu ~75 s như mặc định hệ điều hành (verifier PR #16).
 
 ## Việc định kỳ cần giám sát
 

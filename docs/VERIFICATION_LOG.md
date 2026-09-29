@@ -76,3 +76,18 @@ Test F1 và F3 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
 
 Test #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
 - Lần 2, HEAD `c46def5`: 363 passed; 490 passed / 1 skipped. 30 luồng thu/nộp COD trộn: trạng thái luôn khớp số, nộp ≤ thu. **PASS** → merge PR #14 (`7acc3ba`). Còn LOW: số 0 nhập nhầm rồi nộp 0 thành `REMITTED` cuối cùng (sửa qua đối soát; có cho nộp 0 hay không là R-011).
+
+## PR #16 — G11 Retry / resilience / observability
+
+- Lần 1, HEAD `c13b22b`: 378 passed (SQLite); 507 passed / 1 skipped (PG riêng). **PASS** → merge PR #16 (`bb7aa4d`). Sửa ở PR G12:
+
+| # | Mức | Phát hiện | Xử lý (PR G12) |
+|---|---|---|---|
+| 1 | MEDIUM | Readiness treo ~75 s khi máy CSDL im lặng (không `connect_timeout`) | `connect_timeout` 5 s cho PostgreSQL (`DB_CONNECT_TIMEOUT_SECONDS`) |
+| 2 | MEDIUM | Log JSON bỏ mất traceback | Trường `exc` (đã che) |
+| 3 | LOW/MED | Lớp che bí mật không che traceback | Che `exc_text` và `stack_info` |
+| 4 | LOW | `__getattr__` đệ quy khi copy/unpickle | Chặn tên `inner` |
+| 5 | LOW | Log lỗi 500 có `request_id` = `-` | Handler đặt lại contextvar khi ghi log |
+| 6 | LOW | Độ trễ xấu nhất ~60,6 s khi thử lại | Ghi trong `OBSERVABILITY.md` |
+| 7 | LOW | Logger uvicorn không qua lớp che | Ghi giới hạn trong `OBSERVABILITY.md` |
+| 8 | LOW | Lỗi cây migration → 500 thay vì 503 | Bắt trong readiness; head được cache |

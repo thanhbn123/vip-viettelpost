@@ -14,7 +14,10 @@ from app.db.session import make_engine, make_session_factory
 
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
-    return make_engine(settings.database_url, pool_pre_ping=True)
+    kwargs = {"pool_pre_ping": True}
+    if settings.database_url.startswith("postgresql"):
+        kwargs["connect_args"] = {"connect_timeout": settings.db_connect_timeout_seconds}
+    return make_engine(settings.database_url, **kwargs)
 
 
 @lru_cache(maxsize=1)
