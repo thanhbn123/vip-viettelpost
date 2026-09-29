@@ -20,12 +20,14 @@ HTTP policy (VTP retries up to 5 times until it receives HTTP 200):
 
 import hmac
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from app.core.metrics import metrics
 from app.domain.models.shipment import ShipmentStatus
 from app.providers.viettel_post.status_mapper import StatusMappingResult, map_status
 from app.webhooks.fingerprint import EventFingerprint, build_fingerprint, idempotency_key
@@ -120,15 +122,25 @@ class WebhookProcessor:
         return self._max_body_bytes
 
     def process(self, body: bytes) -> WebhookOutcome:
+        started = time.perf_counter()
+        result = "ERROR"
         try:
-            return self._process(body)
+            outcome = self._process(body)
+            result = outcome.kind.value
+            return outcome
         except WebhookRejected as rejected:
             logger.warning("vtp webhook rejected: %s", rejected.kind.value)
+            result = f"REJECTED_{rejected.kind.value}"
             return WebhookOutcome(
                 kind=WebhookResultKind.REJECTED,
                 http_status=rejected.http_status,
                 rejection=rejected.kind,
                 detail=rejected.detail,
+            )
+        finally:
+            metrics.inc("webhook_events", provider=PROVIDER_CODE, result=result)
+            metrics.observe(
+                "webhook_processing_seconds", time.perf_counter() - started, provider=PROVIDER_CODE
             )
 
     def _process(self, body: bytes) -> WebhookOutcome:
