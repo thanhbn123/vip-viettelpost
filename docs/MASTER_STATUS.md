@@ -22,7 +22,7 @@ Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập
 | G11 | Retry / resilience / observability | **PASS — MERGED** (merge `bb7aa4d`) | `feature/g11-resilience` | #16 (issue #15) | `c13b22b2980e` | PR success; sau merge `develop` run 36534685049 success | SQLite 378 passed; PG16 507 passed / 1 skipped | — | — |
 | G12 | Security hardening | **PASS — MERGED** (merge `20c4981`) | `feature/g12-security` | #18 (issue #17) | `930b999f69ca` | PR run 36536141491 success (4 job); sau merge `develop` run 36536444054 success | SQLite 404 passed; PG16 535 passed / 1 skipped | — | — |
 | G13 | PostgreSQL integration verification | **PASS — MERGED** (merge `baf827f`) | `feature/g13-postgres` | #20 (issue #19) | `476e1c7f0fb5` | PR run 36537880691 success (4 job); sau merge `develop` run 36538183266 success | SQLite 406 passed / 10 skipped (chỉ PG); PG16 549 passed / 1 skipped | — | — |
-| G14 | Staging preparation | IN PROGRESS — sửa sau verifier | `feature/g14-staging` | #22 (issue #21) | xem PR | lần 1 (`9f54ed7`) 4/4 job success; verifier PASS + 2 MEDIUM (runbook) → đã sửa | SQLite 409 passed / 10 skipped; SQLite+PG16 cục bộ 554 passed / 1 skipped | — | CI → cổng merge |
+| G14 | Staging preparation | IN PROGRESS — sửa sau verifier lần 2 | `feature/g14-staging` | #22 (issue #21) | xem PR | lần 2 (`c863d8d`) 4/4 success; verifier FAIL (1 HIGH: entry point job replay) → đã sửa | SQLite 410 passed / 10 skipped; SQLite+PG16 cục bộ 556 passed / 1 skipped | — | CI → verifier → cổng merge |
 | G15 | Staging acceptance | BLOCKED — STAGING ENVIRONMENT REQUIRED | — | — | — | — | — | R-008 | chủ dự án cấp môi trường staging |
 
 ## Drift đã biết của 4 PR (trước tích hợp) → trạng thái

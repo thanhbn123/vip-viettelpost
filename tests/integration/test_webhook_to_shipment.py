@@ -454,3 +454,52 @@ def test_replay_failing_inside_the_database_does_not_lose_the_created_record(
     sid = created(client)
     assert env.shipment(sid).tracking_number == "TRK0001"
     assert env.shipment(sid).status == "CREATED"
+
+
+def _run_job(url):
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ, "DATABASE_URL": url}
+    return subprocess.run(
+        [sys.executable, "-m", "app.jobs.replay_webhooks"], env=env, capture_output=True, text=True
+    )
+
+
+def test_replay_job_entry_point_exit_codes(env, client, migrated_url, monkeypatch):
+    """The real ``python -m`` entry point runs (verifier PR #22 H1), and ``main`` exits 3
+    while events stay unattached to an existing shipment."""
+    import pytest as _pytest
+
+    from app.jobs import replay_webhooks
+    from app.repositories.shipping import Actor, ActorType, NewShipment, ShippingRepository
+
+    clean = _run_job(migrated_url)
+    assert clean.returncode == 0, clean.stderr
+
+    client.post(HOOK, content=vtp(200, "29/09/2026 10:00:00", number="JOB1"))
+    with env.sessions() as s, s.begin():
+        repo = ShippingRepository(s)
+        provider = repo.get_provider_by_code("VIETTEL_POST")
+        repo.create_shipment(
+            NewShipment(
+                order_id="O-J", provider_id=provider.id, tracking_number="JOB1", status="CREATED"
+            ),
+            Actor(ActorType.SYSTEM),
+        )
+
+    # Simulate a replay that cannot attach the event: the gauge stays 1 -> exit 3.
+    import app.core.database as database
+    import app.webhooks.dependencies as deps
+
+    monkeypatch.setattr(database, "get_session_factory", lambda: env.sessions)
+    monkeypatch.setattr(deps, "get_webhook_applier", lambda: env.applier)
+    monkeypatch.setattr(replay_webhooks, "replay_pending", lambda sessions, applier: 0)
+    with _pytest.raises(SystemExit) as stuck:
+        replay_webhooks.main()
+    assert stuck.value.code == 3
+
+    # The real job attaches it: exit 0 again.
+    attached = _run_job(migrated_url)
+    assert attached.returncode == 0, attached.stderr

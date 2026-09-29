@@ -61,9 +61,6 @@ def main() -> None:  # pragma: no cover - thin CLI wrapper
     raise SystemExit(0 if remaining == 0 else 3)
 
 
-if __name__ == "__main__":  # pragma: no cover
-    main()
-
 
 def unmatched_with_shipment(sessions: sessionmaker[Session]) -> int:
     """Monitoring gauge (verifier F2/L3 on PR #10): stored events not attached to a
@@ -90,3 +87,7 @@ def unmatched_with_shipment(sessions: sessionmaker[Session]) -> int:
                 ),
             )
         )
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

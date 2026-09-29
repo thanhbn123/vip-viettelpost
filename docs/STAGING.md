@@ -19,6 +19,7 @@ Bí mật lấy từ kho bí mật của nền tảng (GitHub Environment `stagi
 |---|---|---|
 | `APP_ENV` | không | `staging` (chỉ để nhận diện; mã hiện **không** đọc biến này — không có chốt chặn nào dựa vào nó) |
 | `DATABASE_URL` | **có** | `postgresql+psycopg://<user>:<pass>@<host>:5432/<db_staging>` |
+| `DATABASE_URL_PSQL` (chỉ cho sao lưu) | **có** | Cùng CSDL, dạng libpq `postgresql://…` cho `pg_dump`; tốt hơn: không đặt biến này mà dùng `PGHOST`/`PGUSER`/`PGDATABASE` + `~/.pgpass` (mật khẩu không nằm trên dòng lệnh) |
 | `VTP_BASE_URL` | không | `https://partnerdev.viettelpost.vn` (**không** dùng production) |
 | `VTP_USERNAME` / `VTP_PASSWORD` **hoặc** `VTP_TOKEN` | **có** | Tài khoản **development** do VTP cấp (R-001: chưa có) |
 | `VTP_TIMEOUT_SECONDS` | không | `20` |
@@ -39,7 +40,7 @@ Bí mật lấy từ kho bí mật của nền tảng (GitHub Environment `stagi
 
 ## 4. Quy trình migration (trước khi bật ứng dụng)
 
-Chạy từ bản checkout đúng commit sẽ triển khai (hoặc trong ảnh đó), với `DATABASE_URL` đã nạp từ kho bí mật vào **biến môi trường** (không truyền qua `-x db_url=…`: tham số dòng lệnh hiện trong `ps`). `migrations/env.py` tự đọc `DATABASE_URL`.
+**Lưu khối dưới thành file rồi chạy bằng `bash migrate.sh`** — không dán vào terminal tương tác (zsh mặc định coi dòng `#` là lệnh). Chạy từ bản checkout đúng commit sẽ triển khai (hoặc trong ảnh đó), với `DATABASE_URL` đã nạp từ kho bí mật vào **biến môi trường** (không truyền qua `-x db_url=…`: tham số dòng lệnh hiện trong `ps`). `migrations/env.py` tự đọc `DATABASE_URL`.
 
 ```bash
 set -euo pipefail
@@ -48,7 +49,9 @@ set -euo pipefail
 : "${DATABASE_URL_PSQL:?chua dat DATABASE_URL_PSQL}"
 : "${DATABASE_URL:?chua dat DATABASE_URL}"
 # 1. Sao lưu và KIỂM bản sao lưu (staging mới, CSDL rỗng thì vẫn chạy để có mốc)
-f="before-$(date +%Y%m%d%H%M).dump"
+# Bản dump chứa dữ liệu thật: ghi NGOÀI thư mục repo (repo cũng chặn *.dump trong .gitignore).
+mkdir -p "$HOME/shipping-backups" && chmod 700 "$HOME/shipping-backups"
+f="$HOME/shipping-backups/before-$(date +%Y%m%d%H%M).dump"
 pg_dump --format=custom --file="$f" --dbname="$DATABASE_URL_PSQL"
 pg_restore --list "$f" > /dev/null
 # 2. Xem trước
