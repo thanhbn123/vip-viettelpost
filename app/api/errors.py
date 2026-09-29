@@ -18,6 +18,7 @@ from app.repositories.mappers import MixedCurrencyError
 from app.services.shipping_app import (
     DuplicateActiveShipmentError,
     InvalidShipmentStateError,
+    OperationInProgressError,
     PersistenceAfterProviderError,
     ProviderDisabledError,
     ShipmentNotFoundError,
@@ -33,6 +34,7 @@ _MAPPING: list[tuple[type[BaseException], int, str, bool]] = [
     (ProviderDisabledError, 409, "provider_disabled", True),
     (DuplicateActiveShipmentError, 409, "duplicate_active_shipment", True),
     (InvalidShipmentStateError, 409, "invalid_shipment_state", True),
+    (OperationInProgressError, 409, "operation_in_progress", True),
     (ProviderRequestError, 422, "invalid_provider_request", True),
     (MixedCurrencyError, 422, "mixed_currency", True),
     # Auth before Rejected (subclass): our credentials, not the caller's fault; hide detail.
@@ -72,6 +74,19 @@ def _handler(status: int, code: str, expose: bool):
     return handle
 
 
+async def _unexpected(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("request %s failed with an unexpected error", request_id_of(request))
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "internal_error",
+            "detail": "unexpected error",
+            "request_id": request_id_of(request),
+        },
+    )
+
+
 def install_error_handlers(app: FastAPI) -> None:
     for exc_type, status, code, expose in _MAPPING:
         app.add_exception_handler(exc_type, _handler(status, code, expose))
+    app.add_exception_handler(Exception, _unexpected)

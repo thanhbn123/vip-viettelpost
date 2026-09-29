@@ -1,9 +1,14 @@
-"""shp_0003: at most one ACTIVE shipment per (provider, order).
+"""shp_0003: at most one ACTIVE shipment per (provider, order) + operation claim.
 
 A shipment is active unless its status is DRAFT (never created at the provider, e.g.
 the provider rejected it) or CANCELLED. The partial unique index is the database-level
 guard against creating the same VIPORDER order twice at a carrier when two requests
 race (CR-SHP-001 G06, D-022).
+
+Also adds ``shipments.operation_lock`` / ``operation_lock_at``: a short claim taken with
+a conditional UPDATE before a provider mutation (cancel) so two concurrent requests
+cannot both call the carrier, and the final write only succeeds if the status did not
+change meanwhile (D-028). Nullable, no default: existing rows are unaffected.
 
 Portable partial index: PostgreSQL ``WHERE`` and SQLite ``WHERE`` (SQLite >= 3.8).
 Upgrade fails if duplicate active shipments already exist; resolve them first.
@@ -27,6 +32,9 @@ ACTIVE = sa.text("status NOT IN ('DRAFT', 'CANCELLED')")
 
 
 def upgrade() -> None:
+    with op.batch_alter_table("shipments") as batch:
+        batch.add_column(sa.Column("operation_lock", sa.String(length=32), nullable=True))
+        batch.add_column(sa.Column("operation_lock_at", sa.DateTime(timezone=True), nullable=True))
     op.create_index(
         op.f("uq_shipments_active_provider_order"),
         "shipments",
@@ -39,3 +47,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(op.f("uq_shipments_active_provider_order"), table_name="shipments")
+    with op.batch_alter_table("shipments") as batch:
+        batch.drop_column("operation_lock_at")
+        batch.drop_column("operation_lock")
