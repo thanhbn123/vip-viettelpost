@@ -309,11 +309,10 @@ def test_cancel_recorded_nowhere_is_loud_keeps_lock_and_webhook_recovers(env, cl
     assert env.shipment(sid).status == "CANCELLED"
 
 
-def test_request_cancellation_during_provider_call_releases_lock(env, client):
+def test_request_cancellation_during_provider_call_keeps_lock(env, client):
     import asyncio
 
     sid = created(client)
-    original = env.provider.cancel_shipment
 
     async def cancelled(tracking):
         raise asyncio.CancelledError
@@ -321,9 +320,8 @@ def test_request_cancellation_during_provider_call_releases_lock(env, client):
     env.provider.cancel_shipment = cancelled
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(env.app.cancel_shipment(sid, actor=env.app_actor()))
-    assert env.shipment(sid).operation_lock is None
-    env.provider.cancel_shipment = original
-    assert client.post(f"{BASE}/shipments/{sid}/cancel").status_code == 200
+    # outcome at the carrier unknown: the lock stays until it expires
+    assert env.shipment(sid).operation_lock is not None
 
 
 def test_internal_error_response_carries_request_id_header(env, monkeypatch):
@@ -335,3 +333,73 @@ def test_internal_error_response_carries_request_id_header(env, monkeypatch):
         response = c.get(f"{BASE}/shipments/1", headers={"X-Request-ID": "rid-500"})
     assert response.status_code == 500
     assert response.headers["X-Request-ID"] == "rid-500"
+
+
+# --- verifier findings on PR #10 --------------------------------------------------------
+
+
+def test_enabling_timezone_later_does_not_allow_regression(make_env):
+    make_env()  # no timezone configured
+    with TestClient(app) as client:
+        sid = created(client)
+        client.post(HOOK, content=vtp(500, "29/09/2026 12:00:00"))
+    env2 = make_env(timezone="Asia/Ho_Chi_Minh")  # timezone configured afterwards
+    with TestClient(app) as client:
+        client.post(HOOK, content=vtp(300, "29/09/2026 08:00:00"))  # stale event
+    assert env2.shipment(sid).status == "OUT_FOR_DELIVERY"
+    assert env2.events(sid)[-1].metadata_json == {"decision": "OUT_OF_ORDER"}
+
+
+def test_failed_event_after_retries_exhausted_is_applied_by_the_job(make_env):
+    from app.jobs.replay_webhooks import replay_pending
+
+    state = {"fail": True}
+
+    def maybe_fail():
+        if state["fail"]:
+            raise RuntimeError("database outage")
+
+    env = make_env(fail_hook=maybe_fail)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        sid = created(client)
+        for _ in range(5):  # Viettel Post retries up to 5 times
+            assert client.post(HOOK, content=vtp(200, "29/09/2026 10:00:00")).status_code == 500
+    assert env.webhooks()[0].processing_status == "FAILED"
+    state["fail"] = False
+    assert replay_pending(env.sessions, env.applier) == 1
+    assert env.shipment(sid).status == "PICKED"
+    assert env.webhooks()[0].processing_status == "PROCESSED"
+
+
+def test_provider_cancel_webhook_during_cancel_is_agreement_not_conflict(env, client):
+    sid = created(client)
+    original = env.provider.cancel_shipment
+
+    async def cancel_and_webhook(tracking):
+        env.processor.process(vtp(107, "29/09/2026 10:00:00"))  # VTP confirms first
+        return await original(tracking)
+
+    env.provider.cancel_shipment = cancel_and_webhook
+    response = client.post(f"{BASE}/shipments/{sid}/cancel")
+    assert response.status_code == 200 and response.json()["status"] == "CANCELLED"
+    assert env.shipment(sid).operation_lock is None
+
+
+def test_unmatched_gauge(env, client):
+    from app.jobs.replay_webhooks import replay_pending, unmatched_with_shipment
+    from app.repositories.shipping import Actor, ActorType, NewShipment, ShippingRepository
+
+    client.post(HOOK, content=vtp(200, "29/09/2026 10:00:00", number="GAUGE1"))
+    assert unmatched_with_shipment(env.sessions) == 0  # no shipment yet
+    with env.sessions() as s, s.begin():
+        repo = ShippingRepository(s)
+        provider = repo.get_provider_by_code("VIETTEL_POST")
+        repo.create_shipment(
+            NewShipment(
+                order_id="O-G", provider_id=provider.id, tracking_number="GAUGE1", status="CREATED"
+            ),
+            Actor(ActorType.SYSTEM),
+        )
+    assert unmatched_with_shipment(env.sessions) == 1
+    replay_pending(env.sessions, env.applier)
+    assert unmatched_with_shipment(env.sessions) == 0
