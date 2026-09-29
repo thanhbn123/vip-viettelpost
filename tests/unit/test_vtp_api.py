@@ -363,3 +363,16 @@ async def test_static_token_rejection_is_not_retried():
         await provider.api.cancel_order("301298000044")
     assert len(recorder.requests) == 1
     assert FAKE_LONG_TOKEN not in str(info.value)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+@pytest.mark.asyncio
+async def test_http_401_403_is_an_auth_error(status):
+    from app.providers.base.errors import ProviderAuthError
+
+    provider, _ = provider_with({mapping.CALCULATE_FEE_PATH: respond({"message": "no"}, status)})
+    with pytest.raises(ProviderAuthError):
+        await provider.api.calculate_fee(
+            {**ROUTE, "product_type": "HH", "weight_grams": 1, "price_table_type": 1,
+             "service_code": "VCN"}
+        )

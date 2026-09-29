@@ -2,19 +2,19 @@
 
 Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập nhật sau mỗi gate. Giờ theo +07:00.
 
-**Cập nhật lần cuối:** 2026-09-29 (G05 mở PR tích hợp)
-**`main`:** `3b89b367cf3bd57ac6021645ff15ae37958898f7` · **`develop`:** `3b89b367cf3bd57ac6021645ff15ae37958898f7` (đo 2026-09-29 12:3x trước khi tích hợp)
-**Migration head (trên nhánh tích hợp):** `shp_0002_webhook_processing`
+**Cập nhật lần cuối:** 2026-09-29 13:0x (G05 đã merge; G06 mở PR)
+**`main`:** `3b89b367cf3bd57ac6021645ff15ae37958898f7` · **`develop`:** `cc271b5e945c0bfc64b23a2f2721a903ab9dcbfa` (sau merge PR #6)
+**Migration head:** `develop` = `shp_0002_webhook_processing`; nhánh G06 = `shp_0003_active_order_guard`
 
 | Gate | Phạm vi | Trạng thái | Nhánh | PR | HEAD SHA | CI | Tests | Blockers | Việc kế tiếp |
 |---|---|---|---|---|---|---|---|---|---|
 | G00 | Repository bootstrap | PASS | `main`/`develop` | — | `3b89b367cf3b` | success (run 36522312705, 36522312931) | 2 passed | — | — |
-| G01 | Shipping core / domain | PASS / PENDING INTEGRATION | `feature/shp-core-domain` | #1 | `8515be2e8a35` | success | 63 passed | — | vào G05 |
-| G02 | VTP auth / API client | PASS / PENDING INTEGRATION | `feature/vtp-api-client` | #2 | `d83ae97a2c0a` | success | 51 passed | — | vào G05 |
-| G03 | Webhook / status mapper | PASS / PENDING INTEGRATION | `feature/vtp-webhook-status` | #3 | `a45b7fd6b692` | success | 80 passed | — | vào G05 |
-| G04 | Database / migrations | PASS / PENDING INTEGRATION | `feature/shp-database` | #4 | `4df8ce7b699b` | success | 49 passed | — | vào G05 |
-| G05 | Integration foundation | IN PROGRESS — sửa sau verifier | `integration/cr-shp-001` | #6 | xem PR | lần 1 (`bcf34cf`) success; verifier FAIL (2 HIGH) → đã sửa | SQLite 290 passed; SQLite+PG16 cục bộ 350 passed / 1 skipped | — | CI + verifier lại → cổng merge |
-| G06 | Application service / REST API | OPEN | — | — | — | — | — | — | sau G05 |
+| G01 | Shipping core / domain | PASS — MERGED qua PR #6 | `feature/shp-core-domain` | #1 | `8515be2e8a35` | success | 63 passed | — | — |
+| G02 | VTP auth / API client | PASS — MERGED qua PR #6 | `feature/vtp-api-client` | #2 | `d83ae97a2c0a` | success | 51 passed | — | — |
+| G03 | Webhook / status mapper | PASS — MERGED qua PR #6 | `feature/vtp-webhook-status` | #3 | `a45b7fd6b692` | success | 80 passed | — | — |
+| G04 | Database / migrations | PASS — MERGED qua PR #6 | `feature/shp-database` | #4 | `4df8ce7b699b` | success | 49 passed | — | — |
+| G05 | Integration foundation | **PASS — MERGED** (merge `cc271b5`) | `integration/cr-shp-001` | #6 (issue #5) | `20f32b4a0630` | PR run 36528693788 success; sau merge `develop` run 36528952907 success | SQLite 290 passed; PG16 350 passed / 1 skipped | — | — |
+| G06 | Application service / REST API | IN PROGRESS — sửa sau verifier | `feature/g06-application-api` | #8 (issue #7) | xem PR | lần 1 (`2c02b53`) success; verifier PASS + 2 MEDIUM → đã sửa | SQLite 325 passed; SQLite+PG16 cục bộ 414 passed / 1 skipped | — | CI → cổng merge |
 | G07 | Durable webhook processing (nối vận đơn) | OPEN | — | — | — | — | — | — | sau G06 |
 | G08 | VTP sandbox / dev E2E | BLOCKED_EXTERNAL_CREDENTIAL | — | — | — | — | — | R-001 | chủ dự án cấp credential dev |
 | G09 | Shipment management / operational API | OPEN | — | — | — | — | — | — | — |

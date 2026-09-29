@@ -20,7 +20,8 @@ from app.domain.models.shipment import ShipmentStatus
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BASE_REVISION = "shp_0001_shipping_gateway"
-HEAD = "shp_0002_webhook_processing"
+SHP_0002 = "shp_0002_webhook_processing"
+HEAD = "shp_0003_active_order_guard"
 TABLES = {
     "shipping_providers",
     "shipping_accounts",
@@ -201,11 +202,12 @@ def test_shp_0002_downgrade_refuses_to_lose_review_events(db_url):
             ),
         )
     engine.dispose()
+    command.downgrade(cfg, SHP_0002)
     with pytest.raises(RuntimeError, match="refused"):
         command.downgrade(cfg, BASE_REVISION)
     engine = make_engine(db_url)
     with engine.connect() as conn:
-        assert MigrationContext.configure(conn).get_current_revision() == HEAD
+        assert MigrationContext.configure(conn).get_current_revision() == SHP_0002
         assert conn.exec_driver_sql("SELECT count(*) FROM shipment_events").scalar() == 1
 
 
@@ -230,7 +232,7 @@ def test_shp_0002_check_rejects_null_status_without_review(db_url):
 
 
 def test_shp_0002_webhook_status_check_lists_every_domain_status():
-    source = (REPO_ROOT / "migrations" / "versions" / f"{HEAD}.py").read_text()
+    source = (REPO_ROOT / "migrations" / "versions" / f"{SHP_0002}.py").read_text()
     for status in ShipmentStatus:
         assert f"'{status.value}'" in source
 
@@ -274,3 +276,81 @@ def test_shp_0002_keeps_event_to_webhook_links_across_upgrade_and_downgrade(db_u
     assert link() == 5
     command.downgrade(cfg, BASE_REVISION)
     assert link() == 5
+
+
+# --- shp_0003 (G06) ------------------------------------------------------------------
+
+
+def test_shp_0003_one_active_shipment_per_provider_order(db_url):
+    from sqlalchemy.exc import IntegrityError
+
+    command.upgrade(alembic_config(db_url), "head")
+    engine = make_engine(db_url)
+    insert = (
+        "INSERT INTO shipments (order_id, provider_id, status, package_count, cod_amount, "
+        "currency, created_at, updated_at) SELECT 'ORD-1', id, '{status}', 0, 0, 'VND', "
+        "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM shipping_providers"
+    )
+    with engine.begin() as conn:
+        conn.exec_driver_sql(insert.format(status="DRAFT"))
+        conn.exec_driver_sql(insert.format(status="CANCELLED"))
+        conn.exec_driver_sql(insert.format(status="CREATED"))
+    with pytest.raises(IntegrityError):
+        with engine.begin() as conn:
+            conn.exec_driver_sql(insert.format(status="READY_TO_CREATE"))
+    with engine.begin() as conn:
+        conn.exec_driver_sql(insert.format(status="DRAFT"))  # inactive rows never conflict
+
+
+def test_shp_0003_downgrade_and_reupgrade(db_url):
+    cfg = alembic_config(db_url)
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, SHP_0002)
+    names = {i["name"] for i in inspect(make_engine(db_url)).get_indexes("shipments")}
+    assert "uq_shipments_active_provider_order" not in names
+    command.upgrade(cfg, "head")
+
+
+def test_sqlite_migration_refuses_caller_transaction_and_restores_fks(tmp_path):
+    """Verifier LOW items on PR #6: never commit a caller's transaction; FKs back ON."""
+    from sqlalchemy import create_engine
+
+    url = f"sqlite:///{tmp_path / 'caller.db'}"
+    engine = create_engine(url)
+    cfg = alembic_config(url)
+    with engine.connect() as conn:
+        conn.exec_driver_sql("CREATE TABLE caller_marker (id INTEGER)")
+        conn.commit()
+        conn.exec_driver_sql("INSERT INTO caller_marker VALUES (1)")  # caller's open txn
+        assert conn.in_transaction()
+        cfg.attributes["connection"] = conn
+        with pytest.raises(RuntimeError, match="open transaction"):
+            command.upgrade(cfg, "head")
+        conn.rollback()  # still the caller's to roll back
+        assert conn.exec_driver_sql("SELECT count(*) FROM caller_marker").scalar() == 0
+        conn.commit()  # end the transaction the SELECT auto-began
+        command.upgrade(cfg, "head")  # no open transaction now: allowed
+        assert conn.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+    engine.dispose()
+
+
+def test_sqlite_existing_fk_violation_blocks_migration_before_any_change(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "violation.db"
+    cfg = alembic_config(f"sqlite:///{path}")
+    command.upgrade(cfg, SHP_0002)
+    raw = sqlite3.connect(path)
+    raw.execute("PRAGMA foreign_keys=OFF")
+    raw.execute(
+        "INSERT INTO shipping_accounts (provider_id, account_name, enabled, created_at, "
+        "updated_at) VALUES (999, 'orphan', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+    )
+    raw.commit()
+    raw.close()
+    with pytest.raises(RuntimeError, match="violations exist before migrating"):
+        command.upgrade(cfg, "head")
+    raw = sqlite3.connect(path)
+    (version,) = raw.execute("SELECT version_num FROM alembic_version").fetchone()
+    raw.close()
+    assert version == SHP_0002

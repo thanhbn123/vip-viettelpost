@@ -63,14 +63,26 @@ def run_migrations_online() -> None:
 
 def _run_with_connection(connection) -> None:
     sqlite = connection.dialect.name == "sqlite"
-    if sqlite and not connection.in_transaction():
+    if sqlite:
+        if connection.in_transaction():
+            # PRAGMA foreign_keys is a no-op inside a transaction, and committing here
+            # would commit the caller's own transaction. Refuse instead of doing either.
+            raise RuntimeError("SQLite migrations need a connection without an open transaction")
         # SQLite batch migrations rebuild tables (copy + DROP + rename). With foreign keys
         # enforced, dropping a rebuilt PARENT table fires ON DELETE actions on its
         # children (e.g. SET NULL) and silently loses links. Follow SQLite's documented
-        # ALTER procedure: FKs off during the migration, then foreign_key_check.
+        # ALTER procedure: FKs off during the migration, foreign_key_check around it.
+        # Existing violations are refused BEFORE anything changes: Alembic's SQLite DDL
+        # is not transactional here, so a check afterwards could only report, not undo.
+        existing = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+        if existing:
+            connection.rollback()
+            raise RuntimeError(
+                f"foreign key violations exist before migrating; fix them first: {existing[:5]}"
+            )
         connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
-        # The PRAGMA auto-began a transaction; end it so Alembic's own
-        # begin_transaction() owns (and commits) the migration transaction.
+        # The PRAGMA auto-began a transaction that this function started; end it so
+        # Alembic's own begin_transaction() owns (and commits) the migration transaction.
         connection.commit()
     context.configure(
         connection=connection,
@@ -78,15 +90,22 @@ def _run_with_connection(connection) -> None:
         render_as_batch=sqlite,
         compare_type=True,
     )
-    with context.begin_transaction():
-        context.run_migrations()
-    if sqlite:
-        violations = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
-        connection.exec_driver_sql("PRAGMA foreign_keys=ON")
-        if connection.in_transaction():
-            connection.commit()
-        if violations:
-            raise RuntimeError(f"foreign key violations after migration: {violations[:5]}")
+    try:
+        with context.begin_transaction():
+            context.run_migrations()
+            if sqlite:
+                violations = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+                if violations:
+                    # The schema change itself introduced them. Reported loudly; on
+                    # SQLite the DDL may already be applied (see the pre-check above).
+                    raise RuntimeError(f"foreign key violations after migration: {violations[:5]}")
+    finally:
+        if sqlite:
+            if connection.in_transaction():
+                connection.rollback()
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            if connection.in_transaction():
+                connection.commit()
 
 
 if context.is_offline_mode():

@@ -129,6 +129,15 @@ class Shipment(Base):
         ),
         Index(None, "order_id"),
         Index(None, "status"),
+        # shp_0003: one active shipment per (provider, order); DRAFT/CANCELLED excluded.
+        Index(
+            "uq_shipments_active_provider_order",
+            "provider_id",
+            "order_id",
+            unique=True,
+            postgresql_where=text("status NOT IN ('DRAFT', 'CANCELLED')"),
+            sqlite_where=text("status NOT IN ('DRAFT', 'CANCELLED')"),
+        ),
         CheckConstraint("order_id <> ''", name="order_id_not_empty"),
         CheckConstraint(_in("status", SHIPMENT_STATUSES), name="status_valid"),
         CheckConstraint("package_count >= 0", name="package_count_non_negative"),
@@ -182,6 +191,9 @@ class Shipment(Base):
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
     created_by: Mapped[str | None] = mapped_column(String(128))
+    # shp_0003: in-flight provider mutation claim (e.g. "CANCEL"), see D-028.
+    operation_lock: Mapped[str | None] = mapped_column(String(32))
+    operation_lock_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     provider: Mapped[ShippingProvider] = relationship()
     packages: Mapped[list["ShipmentPackage"]] = relationship(

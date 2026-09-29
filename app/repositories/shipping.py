@@ -156,7 +156,12 @@ class ShippingRepository:
 
     # -- shipments --------------------------------------------------------------
 
-    def create_shipment(self, data: NewShipment, actor: Actor) -> Shipment:
+    def list_providers(self) -> list[ShippingProvider]:
+        return list(self.session.scalars(select(ShippingProvider).order_by(ShippingProvider.code)))
+
+    def create_shipment(
+        self, data: NewShipment, actor: Actor, *, request_id: str | None = None
+    ) -> Shipment:
         """Insert shipment + packages (+ COD row if COD > 0) + audit, one flush."""
         cod_amount = to_money(data.cod_amount)
         shipment = Shipment(
@@ -204,6 +209,7 @@ class ShippingRepository:
             action=AuditAction.SHIPMENT_CREATED,
             actor=actor,
             after=_shipment_snapshot(shipment),
+            request_id=request_id,
         )
         self.session.flush()
         return shipment

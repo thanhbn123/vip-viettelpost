@@ -28,6 +28,7 @@ from app.providers.base.dto import (
     WebhookRequest,
     WebhookResult,
 )
+from app.providers.base.errors import ProviderRequestError
 from app.providers.base.provider import ShippingProvider
 from app.providers.viettel_post.api import ViettelPostApi
 from app.providers.viettel_post.auth import ViettelPostAuth
@@ -45,7 +46,7 @@ from app.webhooks.viettel_post_payload import (
 VND = "VND"
 
 
-class ViettelPostRequestError(ValueError):
+class ViettelPostRequestError(ProviderRequestError):
     """A core request cannot be expressed as a Viettel Post request (caller error)."""
 
 
