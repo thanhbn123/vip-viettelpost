@@ -16,14 +16,14 @@ Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập
 | G05 | Integration foundation | **PASS — MERGED** (merge `cc271b5`) | `integration/cr-shp-001` | #6 (issue #5) | `20f32b4a0630` | PR run 36528693788 success; sau merge `develop` run 36528952907 success | SQLite 290 passed; PG16 350 passed / 1 skipped | — | — |
 | G06 | Application service / REST API | **PASS — MERGED** (merge `051e535`) | `feature/g06-application-api` | #8 (issue #7) | `1bf3302a5c59` | PR run 36530437942 success; sau merge `develop` run 36530744508 success | SQLite 325 passed; PG16 414 passed / 1 skipped | — | — |
 | G07 | Durable webhook processing (nối vận đơn) | **PASS — MERGED** (merge `0fbdc2d`) | `feature/g07-webhook-apply` | #10 (issue #9) | `f635fa2be261` | PR run 36531821878 success; sau merge `develop` run 36532096484 success | SQLite 344 passed; PG16 452 passed / 1 skipped | — | lịch job replay → G14 |
-| G08 | VTP sandbox / dev E2E | BLOCKED_EXTERNAL_CREDENTIAL | — | — | — | — | — | R-001 | chủ dự án cấp credential dev |
+| G08 | VTP sandbox / dev E2E | BLOCKED_EXTERNAL_CREDENTIAL — công cụ sẵn (`scripts/vtp_dev_e2e.py`, job `vtp-dev-e2e` trong `staging.yml`, `docs/VTP_DEV_E2E.md`) | — | — | — | — | — | R-001 | chủ dự án thêm credential dev vào Environment `staging` |
 | G09 | Shipment management / operational API | **PASS — MERGED** (merge `e828265`) | `feature/g09-operations` | #12 (issue #11) | `03231f7387cc` | PR run 36532374574 success; sau merge `develop` run 36532818524 success | SQLite 352 passed; PG16 468 passed / 1 skipped | — | — |
 | G10 | COD / fee / reconciliation foundation | **PASS — MERGED** (merge `7acc3ba`) | `feature/g10-finance` | #14 (issue #13) | `c46def5e6fda` | PR run 36533633680 success; sau merge `develop` run 36533838889 success | SQLite 363 passed; PG16 490 passed / 1 skipped | R-011 (quy tắc kế toán) | — |
 | G11 | Retry / resilience / observability | **PASS — MERGED** (merge `bb7aa4d`) | `feature/g11-resilience` | #16 (issue #15) | `c13b22b2980e` | PR success; sau merge `develop` run 36534685049 success | SQLite 378 passed; PG16 507 passed / 1 skipped | — | — |
 | G12 | Security hardening | **PASS — MERGED** (merge `20c4981`) | `feature/g12-security` | #18 (issue #17) | `930b999f69ca` | PR run 36536141491 success (4 job); sau merge `develop` run 36536444054 success | SQLite 404 passed; PG16 535 passed / 1 skipped | — | — |
 | G13 | PostgreSQL integration verification | **PASS — MERGED** (merge `baf827f`) | `feature/g13-postgres` | #20 (issue #19) | `476e1c7f0fb5` | PR run 36537880691 success (4 job); sau merge `develop` run 36538183266 success | SQLite 406 passed / 10 skipped (chỉ PG); PG16 549 passed / 1 skipped | — | — |
 | G14 | Staging preparation | **PASS — MERGED** (merge `8cd7d4b`) | `feature/g14-staging` | #22 (issue #21) | `b9b5a12df698` | PR run 36539638446 success; sau merge `develop` run 36539857970 success | SQLite 410 passed / 10 skipped; PG16 556 passed / 1 skipped | — | — |
-| G15 | Staging acceptance | BLOCKED — STAGING ENVIRONMENT REQUIRED (runbook + smoke test sẵn: `docs/STAGING.md`) | — | — | — | — | — | R-008 | chủ dự án cấp môi trường staging |
+| G15 | Staging acceptance | BLOCKED_STAGING_INFRA — `STAGING_TARGET_MISSING` (runbook, `STAGING_REQUIREMENTS.md`, `STAGING_DEPLOYMENT.md`, workflow `staging.yml` fail closed sẵn) | — | — | — | — | — | R-008 | chủ dự án cấp môi trường staging |
 
 ## Drift đã biết của 4 PR (trước tích hợp) → trạng thái
 
@@ -46,3 +46,9 @@ Quyết định nghiệp vụ đang chờ (không chặn STAGING READY): R-002 m
 ## PR đã merge vào `develop` (CR-SHP-001)
 
 #1 · #2 · #3 · #4 (qua #6) · #6 G05 · #8 G06 · #10 G07 · #12 G09 · #14 G10 · #16 G11 · #18 G12 · #20 G13 · #22 G14. Mỗi PR: CI success đúng HEAD + verifier độc lập PASS (chi tiết `docs/VERIFICATION_LOG.md`).
+
+## Staging continuation (2026-09-29)
+
+Đo lại: `develop` `d580cc3`, `main` `3b89b36`, 0 PR mở, CI `develop` gần nhất success (run 36540309007), head `shp_0004_shipments_created_index`, 0 Environment / 0 secret / 0 variable trên repo, không có staging target được chỉ định. Quét bí mật cây + lịch sử (96 commit, mọi ref đã fetch; mẫu: khoá riêng, token GitHub/AWS/`sk-`/Slack, JWT không giả, URL có mật khẩu, gán biến bí mật của dự án) → **PASS** (chỉ placeholder và mật khẩu throwaway của CI).
+
+Tài liệu mới: `STAGING_REQUIREMENTS.md`, `GITHUB_ENVIRONMENT_STAGING.md`, `STAGING_DEPLOYMENT.md`, `VTP_DEV_E2E.md`; quyết định còn mở trong `DECISIONS.md`. Workflow `staging.yml` (chạy tay, Environment `staging`, kiểm SHA thuộc `develop`, test, build ảnh, deploy **dừng** với `STAGING_TARGET_MISSING` cho tới khi có target).
