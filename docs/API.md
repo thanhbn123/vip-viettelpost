@@ -23,7 +23,7 @@ Trường riêng của hãng đi trong `provider_options` (VTP: xem `docs/VIETTE
 3. Ghi kết quả: thành công → `CREATED` + mã vận đơn + phí báo lúc tạo (`estimated_fee`); hãng từ chối / yêu cầu sai → `DRAFT` (giải phóng đơn để sửa và gửi lại); quá giờ / 5xx / phản hồi lạ → **giữ `READY_TO_CREATE`** + audit `PROVIDER_OUTCOME_UNKNOWN`: hãng có thể đã tạo đơn, nên đơn bị khoá tới khi người vận hành kiểm, không tạo mù lần hai.
 4. Hãng tạo xong nhưng ghi CSDL hỏng → 500 `persistence_failed_after_provider_success` kèm mã vận đơn để đối soát; log mức ERROR.
 
-Huỷ: chỉ khi có mã vận đơn và chưa ở trạng thái cuối (`DELIVERED`, `RETURNED`, `CANCELLED`) → 409 nếu không. Hãng huỷ lỗi → trạng thái giữ nguyên, audit `PROVIDER_CANCEL_FAILED`.
+Huỷ (D-028): claim khoá thao tác trước khi gọi hãng; chỉ khi có mã vận đơn và chưa ở trạng thái cuối (`DELIVERED`, `RETURNED`, `CANCELLED`) → 409 nếu không. Hãng huỷ lỗi → trạng thái giữ nguyên, audit `PROVIDER_CANCEL_FAILED`.
 
 ## Mã lỗi
 
@@ -35,7 +35,8 @@ Thân lỗi: `{"error": "<mã>", "detail": "<ngắn, an toàn>", "request_id": "
 | 404 | `provider_not_supported` | Mã hãng hợp lệ nhưng chưa có adapter |
 | 409 | `provider_disabled` | Hãng bị tắt trong `shipping_providers` |
 | 409 | `duplicate_active_shipment` | Đơn đã có vận đơn đang hoạt động ở hãng này |
-| 409 | `invalid_shipment_state` | Huỷ vận đơn đã kết thúc / chưa có mã; mã vận đơn trùng ở nhiều hãng |
+| 409 | `invalid_shipment_state` | Huỷ vận đơn đã kết thúc / chưa có mã; mã vận đơn trùng ở nhiều hãng; trạng thái đổi trong lúc hãng đang huỷ (cần người vận hành xem) |
+| 409 | `operation_in_progress` | Đang có lệnh khác làm đổi vận đơn này (vd. lệnh huỷ song song) |
 | 422 | (FastAPI) | Thân yêu cầu sai kiểu / thiếu / thừa trường |
 | 422 | `invalid_provider_request` | Yêu cầu không diễn đạt được cho hãng (thiếu `order_payment`, không phải VND...) |
 | 422 | `mixed_currency` | Vận đơn dùng nhiều đơn vị tiền |
@@ -46,3 +47,4 @@ Thân lỗi: `{"error": "<mã>", "detail": "<ngắn, an toàn>", "request_id": "
 | 504 | `provider_timeout` | Hãng không trả lời kịp; **kết quả không rõ** |
 | 500 | `persistence_failed_after_provider_success` | Xem bước 4 |
 | 501 | `not_implemented` | Hãng không có tính năng (vd. tra cứu VTP) |
+| 500 | `internal_error` | Lỗi bất ngờ; chi tiết chỉ ở log, tra theo `request_id` |
