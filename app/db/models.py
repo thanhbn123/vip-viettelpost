@@ -129,6 +129,7 @@ class Shipment(Base):
         ),
         Index(None, "order_id"),
         Index(None, "status"),
+        Index(None, "created_at", "id"),  # shp_0004: newest-first listing
         # shp_0003: one active shipment per (provider, order); DRAFT/CANCELLED excluded.
         Index(
             "uq_shipments_active_provider_order",

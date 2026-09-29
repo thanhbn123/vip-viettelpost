@@ -21,7 +21,8 @@ from app.domain.models.shipment import ShipmentStatus
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BASE_REVISION = "shp_0001_shipping_gateway"
 SHP_0002 = "shp_0002_webhook_processing"
-HEAD = "shp_0003_active_order_guard"
+SHP_0003 = "shp_0003_active_order_guard"
+HEAD = "shp_0004_shipments_created_index"
 TABLES = {
     "shipping_providers",
     "shipping_accounts",
@@ -354,3 +355,14 @@ def test_sqlite_existing_fk_violation_blocks_migration_before_any_change(tmp_pat
     (version,) = raw.execute("SELECT version_num FROM alembic_version").fetchone()
     raw.close()
     assert version == SHP_0002
+
+
+def test_shp_0004_created_index_up_and_down(db_url):
+    cfg = alembic_config(db_url)
+    command.upgrade(cfg, "head")
+    names = {i["name"] for i in inspect(make_engine(db_url)).get_indexes("shipments")}
+    assert "ix_shipments_created_at_id" in names
+    command.downgrade(cfg, SHP_0003)
+    names = {i["name"] for i in inspect(make_engine(db_url)).get_indexes("shipments")}
+    assert "ix_shipments_created_at_id" not in names
+    command.upgrade(cfg, "head")
