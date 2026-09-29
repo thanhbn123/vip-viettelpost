@@ -29,3 +29,24 @@ Trạng thái target: **`STAGING_TARGET_MISSING`** (2026-09-29). Workflow `.gith
 - PostgreSQL 16: host, port, database, user (mật khẩu đưa thẳng vào secret `DATABASE_URL`).
 
 Khi có target: em cài cơ chế deploy tương ứng vào bước "Deploy" của `staging.yml`, đặt tên secret của cơ chế đó vào `GITHUB_ENVIRONMENT_STAGING.md` §B, rồi chạy G15 theo `STAGING.md` §9.
+
+## Deploy contract (CR-STG-001)
+
+`STAGING_DEPLOY_METHOD` là **allowlist**: một method chỉ tồn tại khi file hook `scripts/staging/methods/<method>.sh` được commit (tên khớp `^[a-z0-9][a-z0-9-]{1,40}$`). **Hiện chưa có hook nào** — chủ dự án chưa chọn target, nên em không tự chọn VPS/nền tảng nào.
+
+Workflow gọi `scripts/staging/deploy.sh <phase>`; dispatcher kiểm tên method, hook tồn tại, `STAGING_SHA` 40-hex, rồi chạy `bash <hook> <phase>`. Hook nhận:
+
+| Biến | Ý nghĩa |
+|---|---|
+| `STAGING_SHA` | commit đang triển khai |
+| `STAGING_IMAGE_ARCHIVE` | ảnh `docker save \| gzip` của đúng SHA (tag `vip-shipping-gateway:staging-<sha>`, có `APP_GIT_SHA`) — cho `migrate`, `start` |
+| `STAGING_ENV_FILE` | file quyền 600 chứa biến runtime (tạo từ secret, không in) — cho `migrate`, `start` |
+
+| Phase | Hook phải làm | Thất bại |
+|---|---|---|
+| `migrate` | Sao lưu + `alembic -c migrations/alembic.ini upgrade head` bằng **ảnh mới** với `STAGING_ENV_FILE`, rồi kiểm `current` = head | exit ≠ 0 → workflow dừng, ảnh cũ vẫn chạy |
+| `start` | Chạy ảnh mới (giữ ảnh/SHA trước để rollback), cổng 8000 sau proxy HTTPS, restart policy | exit ≠ 0 |
+| `rollback` | Quay về release trước (ảnh + nếu cần schema theo `STAGING.md` §5) | exit ≠ 0 → cần người xử |
+| `logs` | In log ứng dụng gần nhất ra stdout (để acceptance quét) | exit ≠ 0 → `log_redaction` = NOT_RUN → không đạt |
+
+Cắm một target = thêm **một** file hook + đặt `STAGING_DEPLOY_METHOD`; **không** sửa mã nghiệp vụ. Tiêu chí nhận hook: có test/bằng chứng chạy được với target thật, qua PR + verifier.

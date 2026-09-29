@@ -108,3 +108,11 @@ def test_not_ready_without_api_keys(migrated_url, monkeypatch):
     checks = health.readiness_checks()
     engine.dispose()
     assert checks["api_keys"]["ok"] is False
+
+
+def test_readiness_reports_the_running_commit(monkeypatch):
+    monkeypatch.setattr(settings, "app_git_sha", "a" * 40)
+    monkeypatch.setattr(health, "get_engine", lambda: make_engine("sqlite://"))
+    with TestClient(app) as client:
+        body = client.get("/health/ready").json()
+    assert body["version"] == "a" * 40

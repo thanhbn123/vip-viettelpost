@@ -67,7 +67,12 @@ def ready():
     ok = all(c["ok"] for c in checks.values())
     return JSONResponse(
         status_code=200 if ok else 503,
-        content={"status": "ready" if ok else "not_ready", "checks": checks},
+        content={
+            "status": "ready" if ok else "not_ready",
+            "checks": checks,
+            # Deployment evidence: which commit is actually running (public repo, not secret).
+            "version": settings.app_git_sha,
+        },
     )
 
 

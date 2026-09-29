@@ -7,6 +7,8 @@ VTP_PRODUCTION_BASE_URL = "https://partner.viettelpost.vn"
 class Settings(BaseSettings):
     app_env: str = "development"
     app_name: str = "vip-shipping-gateway"
+    # Commit the running image was built from (Dockerfile build-arg GIT_SHA); not secret.
+    app_git_sha: str | None = None
     database_url: str = "sqlite:///./vip_shipping.db"
     # PostgreSQL connect timeout: a silent DB host must not hold readiness or requests for
     # the OS default (~75 s measured, verifier PR #16).
