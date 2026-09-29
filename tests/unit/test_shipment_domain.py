@@ -263,7 +263,9 @@ def test_event_needs_some_time():
     with pytest.raises(ValidationError):
         make_event(occurred_at=None)
     received = datetime(2026, 9, 29, 3, 0, tzinfo=timezone.utc)
-    event = make_event(occurred_at=None, occurred_at_raw="29/09/2026 10:00:00", received_at=received)
+    event = make_event(
+        occurred_at=None, occurred_at_raw="29/09/2026 10:00:00", received_at=received
+    )
     assert event.effective_time == received
 
 

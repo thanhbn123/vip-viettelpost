@@ -78,3 +78,22 @@ Tài liệu yêu cầu phản hồi **< 1 giây**; pipeline không gọi mạng.
 ### Cập nhật vận đơn từ webhook (G07)
 
 Sự kiện webhook chỉ đổi trạng thái vận đơn qua `WebhookShipmentApplier` trong cùng transaction với claim chống trùng; mọi thay đổi có audit actor `WEBHOOK` kèm `webhook_event:<id>`. Webhook không thể kéo vận đơn ra khỏi trạng thái cuối hay lùi trạng thái bằng sự kiện cũ (D-026).
+
+## Security posture (G12, đo 2026-09-29)
+
+| Mặt | Hiện trạng | Bằng chứng |
+|---|---|---|
+| Xác thực bên gọi API | `X-API-Key`; cấu hình chỉ giữ SHA-256 (`API_KEYS`), so sánh hằng thời gian, **fail closed** (chưa cấu hình → 503); key id thành actor audit `apikey:<id>` (D-033) | `tests/integration/test_auth.py` |
+| Webhook | `TOKEN` trong thân, so hằng thời gian, fail closed; chống trùng/phát lại bền (D-011, D-020); không lưu `TOKEN` | `test_webhook_*.py` |
+| Endpoint công khai | chỉ `/health`, `/health/ready` (không trả giá trị bí mật), route webhook (có `TOKEN`) | `test_public_endpoints_stay_open` |
+| Giới hạn đầu vào | API thân ≤ `API_MAX_BODY_BYTES` (256 KiB) → 413; webhook ≤ 64 KiB; Pydantic `extra="forbid"`, tiền không nhận float | `test_security_headers_and_body_limit` |
+| Header | `nosniff`, `no-store`, `DENY`, `no-referrer` | như trên |
+| Lộ lỗi | Mọi lỗi → JSON mã cố định + `request_id`; không stack/SQL/token; lỗi hãng xác thực/timeout/5xx bị ẩn chi tiết | `test_shipping_api.py` |
+| Tham số SQL trong lỗi/log | `hide_parameters=True` trên mọi engine (tham số có thể chứa họ tên/SĐT người nhận) (D-036) | `test_database_errors_never_carry_sql_parameters` (hỏng khi tắt) |
+| Log | `request_id` mỗi dòng; lọc che JWT + bí mật đã cấu hình; log chỉ có id, mã vận đơn, tên lớp lỗi | `test_observability.py` |
+| Bí mật trong repo | Tripwire `tests/test_no_secrets.py` trên file đang track; không track `.env`/`.db`/`.pem` | CI |
+| Bí mật trong lịch sử git | Quét 55 commit (mọi ref của bản clone, 29/09) trên dòng thêm: khoá riêng, token GitHub, AWS key, `sk-`, `xox*-`, JWT không phải giá trị giả → **0 trúng**. Phạm vi: chỉ các mẫu này, chỉ các ref đã fetch | lệnh `git log --all -p` ghi trong PR G12 |
+| Phụ thuộc | `pip-audit` trên `requirements.txt`: trước 8 lỗ hổng (starlette 0.41.3 ×7, pytest 8.3.4 ×1) → nâng FastAPI 0.141.1 / Starlette 1.7.0 / pytest 9.1.1 / pytest-asyncio 1.4.0 → **0 lỗ hổng đã biết** (cơ sở dữ liệu pip-audit 29/09; không phủ phụ thuộc hệ điều hành/ảnh Docker) (D-035) | PR G12 |
+| Lint | `ruff 0.6.9` (E, F, W, I, UP, B) chặn trong CI (D-034) | job `lint` |
+| PII lưu trữ | Payload webhook (có tên/SĐT người nhận) lưu trong `shipping_webhook_events.payload_json`; địa chỉ người gửi/nhận trong `shipments`. **Chưa có chính sách lưu giữ/xoá** — cần chủ dự án quyết (R-014) | — |
+| Chưa làm | Giới hạn tần suất (rate limit), xoay vòng API key tự động, phân quyền theo key (mọi key làm được mọi việc) | R-015 |

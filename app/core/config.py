@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     vtp_webhook_timezone: str | None = None
     webhook_max_body_bytes: int = 64 * 1024
 
+    # G12 security. Only SHA-256 digests of keys: "<id>:<sha256 hex>,..." (D-033).
+    api_keys: str | None = None
+    api_max_body_bytes: int = 256 * 1024
+
     # G11 observability / resilience
     log_level: str = "INFO"
     log_format: str = "text"  # "text" | "json"

@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from app.api.errors import install_error_handlers
 from app.api.health import router as health_router
@@ -21,6 +22,37 @@ app = FastAPI(
     version="0.1.0",
 )
 install_error_handlers(app)
+
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "no-store",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+@app.middleware("http")
+async def limits_and_headers(request: Request, call_next):
+    # Oversized API bodies are refused before parsing. The webhook route enforces its
+    # own (smaller) limit and is excluded here.
+    declared = request.headers.get("content-length")
+    if (
+        request.url.path.startswith("/api/")
+        and "/webhooks/" not in request.url.path
+        and declared is not None
+        and declared.isdigit()
+        and int(declared) > settings.api_max_body_bytes
+    ):
+        response = JSONResponse(
+            status_code=413,
+            content={"error": "payload_too_large", "detail": "request body too large"},
+        )
+    else:
+        response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
 
 
 @app.middleware("http")

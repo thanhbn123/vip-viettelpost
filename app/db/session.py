@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 
 def make_engine(url: str, **kwargs) -> Engine:
+    # SQL parameters can hold personal data (receiver names/phones in webhook payloads)
+    # and would otherwise appear in exception messages and logged tracebacks (G12).
+    kwargs.setdefault("hide_parameters", True)
     engine = create_engine(url, **kwargs)
     if engine.dialect.name == "sqlite":
         _configure_sqlite(engine)

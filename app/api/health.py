@@ -4,10 +4,11 @@ from pathlib import Path
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from app.api.auth import require_api_key
 from app.core.config import settings
 from app.core.database import get_engine
 from app.core.metrics import metrics
@@ -62,6 +63,6 @@ def ready():
     )
 
 
-@router.get("/metrics")
+@router.get("/metrics", dependencies=[Depends(require_api_key)])
 def metrics_snapshot():
     return metrics.snapshot()

@@ -6,6 +6,7 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.api.auth import AuthNotConfiguredError, UnauthenticatedError
 from app.providers.base.errors import (
     ProviderAuthError,
     ProviderRejectedError,
@@ -30,6 +31,8 @@ logger = logging.getLogger("app.api.errors")
 
 # (status, code, expose provider/app message?)
 _MAPPING: list[tuple[type[BaseException], int, str, bool]] = [
+    (UnauthenticatedError, 401, "unauthorized", False),
+    (AuthNotConfiguredError, 503, "auth_not_configured", False),
     (ShipmentNotFoundError, 404, "shipment_not_found", True),
     (ReconciliationNotFoundError, 404, "reconciliation_not_found", True),
     (FinanceError, 422, "invalid_finance_operation", True),
@@ -51,6 +54,8 @@ _MAPPING: list[tuple[type[BaseException], int, str, bool]] = [
 ]
 
 _GENERIC = {
+    "unauthorized": "a valid X-API-Key header is required",
+    "auth_not_configured": "API authentication is not configured on this server",
     "provider_auth_failed": "the gateway could not authenticate with the provider",
     "provider_timeout": "the provider did not answer in time; the outcome is unknown",
     "provider_unavailable": "the provider is unavailable; retry later",

@@ -51,3 +51,29 @@ def migrated_url(db_url: str) -> str:
     """URL of a database upgraded to the Alembic head."""
     command.upgrade(alembic_config(db_url), "head")
     return db_url
+
+
+@pytest.fixture(autouse=True)
+def _authenticated_api(request):
+    """Most API tests are about behaviour, not auth: stand in an authenticated caller.
+
+    ``tests/integration/test_auth.py`` opts out (marker ``real_auth``) and exercises the
+    real ``require_api_key`` dependency.
+    """
+    from app.api.auth import require_api_key
+    from app.main import app
+
+    if request.node.get_closest_marker("real_auth"):
+        app.dependency_overrides.pop(require_api_key, None)
+        yield
+        return
+
+    from fastapi import Request
+
+    async def fake(request: Request) -> str:
+        request.state.api_key_id = "tests"
+        return "tests"
+
+    app.dependency_overrides[require_api_key] = fake
+    yield
+    app.dependency_overrides.pop(require_api_key, None)

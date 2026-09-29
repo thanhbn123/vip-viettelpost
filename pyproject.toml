@@ -2,6 +2,14 @@
 pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
+markers = ["real_auth: run with the real API key dependency (no test stand-in)"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Frozen migration history: never rewritten for style.
+"migrations/versions/shp_0001_shipping_gateway.py" = ["E501"]
