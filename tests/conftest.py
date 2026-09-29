@@ -11,16 +11,16 @@ import os
 import tempfile
 from pathlib import Path
 
-# Before any application import: tests must never open the default ./vip_shipping.db or
-# a DATABASE_URL inherited from the developer's shell or .env (env var beats .env).
-_TEST_DB_DIR = tempfile.mkdtemp(prefix="vip-shipping-tests-")
-os.environ["DATABASE_URL"] = f"sqlite:///{Path(_TEST_DB_DIR) / 'default.db'}"
-
-
 import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text
+
+# Before any application import (none of the imports above load the app): tests must never
+# open the default ./vip_shipping.db or a DATABASE_URL inherited from the developer's
+# shell or .env (an environment variable beats .env).
+_TEST_DB_DIR = tempfile.mkdtemp(prefix="vip-shipping-tests-")
+os.environ["DATABASE_URL"] = f"sqlite:///{Path(_TEST_DB_DIR) / 'default.db'}"
 
 
 def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001 - pytest hook signature
