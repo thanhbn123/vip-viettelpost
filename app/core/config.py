@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_name: str = "vip-shipping-gateway"
     database_url: str = "sqlite:///./vip_shipping.db"
+    # PostgreSQL connect timeout: a silent DB host must not hold readiness or requests for
+    # the OS default (~75 s measured, verifier PR #16).
+    db_connect_timeout_seconds: int = 5
 
     # Default is the documented DEVELOPMENT environment. Production must be chosen
     # explicitly (VTP_BASE_URL) so that no default configuration can reach it.

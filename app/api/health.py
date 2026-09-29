@@ -1,5 +1,6 @@
 """Liveness, readiness and metrics (G11). Readiness never calls the carrier."""
 
+from functools import lru_cache
 from pathlib import Path
 
 from alembic.config import Config
@@ -17,6 +18,7 @@ router = APIRouter()
 MIGRATIONS = Path(__file__).resolve().parents[2] / "migrations"
 
 
+@lru_cache(maxsize=1)
 def expected_head() -> str:
     cfg = Config(str(MIGRATIONS / "alembic.ini"))
     cfg.set_main_option("script_location", str(MIGRATIONS))
@@ -25,7 +27,11 @@ def expected_head() -> str:
 
 def readiness_checks(engine=None) -> dict[str, dict]:
     checks: dict[str, dict] = {}
-    head = expected_head()
+    try:
+        head = expected_head()
+    except Exception as exc:  # broken/multi-head migration tree: not ready, not a 500
+        head = None
+        checks["migration_scripts"] = {"ok": False, "error": type(exc).__name__}
     try:
         with (engine or get_engine()).connect() as conn:
             conn.execute(text("SELECT 1"))

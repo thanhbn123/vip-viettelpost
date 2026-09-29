@@ -36,12 +36,17 @@ def test_fail_closed_without_configuration(monkeypatch):
     assert response.status_code == 503 and response.json()["error"] == "auth_not_configured"
 
 
-@pytest.mark.parametrize("headers", [{}, {"X-API-Key": ""}, {"X-API-Key": "wrong"},
-                                     {"Authorization": f"Bearer {KEY}"}])
+@pytest.mark.parametrize(
+    "headers", [{}, {"X-API-Key": ""}, {"X-API-Key": "wrong"}, {"Authorization": f"Bearer {KEY}"}]
+)
 def test_rejects_missing_or_wrong_key(keyed, headers):
     with TestClient(app) as client:
-        for method, path in (("get", "/providers"), ("get", "/shipments"),
-                             ("get", "/shipments/1/finance"), ("post", "/quote")):
+        for method, path in (
+            ("get", "/providers"),
+            ("get", "/shipments"),
+            ("get", "/shipments/1/finance"),
+            ("post", "/quote"),
+        ):
             response = getattr(client, method)(f"{BASE}{path}", headers=headers)
             assert response.status_code == 401, (path, response.text)
             assert response.json()["error"] == "unauthorized"
@@ -61,8 +66,7 @@ def test_valid_key_is_accepted_and_becomes_the_audit_actor(keyed, make_env):
     env = make_env()
     with TestClient(app) as client:
         assert client.get(f"{BASE}/providers", headers={"X-API-Key": KEY}).status_code == 200
-        created = client.post(f"{BASE}/shipments", json=create_body(),
-                              headers={"X-API-Key": OTHER})
+        created = client.post(f"{BASE}/shipments", json=create_body(), headers={"X-API-Key": OTHER})
         assert created.status_code == 201
         assert client.get("/metrics", headers={"X-API-Key": KEY}).status_code == 200
     with env.sessions() as s:
@@ -77,8 +81,11 @@ def test_security_headers_and_body_limit(keyed, monkeypatch):
         response = client.get("/health")
         assert response.headers["X-Content-Type-Options"] == "nosniff"
         assert response.headers["Cache-Control"] == "no-store"
-        big = client.post(f"{BASE}/quote", content=b"x" * 500,
-                          headers={"X-API-Key": KEY, "Content-Type": "application/json"})
+        big = client.post(
+            f"{BASE}/quote",
+            content=b"x" * 500,
+            headers={"X-API-Key": KEY, "Content-Type": "application/json"},
+        )
         assert big.status_code == 413 and big.json()["error"] == "payload_too_large"
 
 

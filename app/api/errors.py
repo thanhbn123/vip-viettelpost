@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.api.auth import AuthNotConfiguredError, UnauthenticatedError
+from app.core.logging import request_id_var
 from app.providers.base.errors import (
     ProviderAuthError,
     ProviderRejectedError,
@@ -83,8 +84,13 @@ def _handler(status: int, code: str, expose: bool):
 
 
 async def _unexpected(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("request %s failed with an unexpected error", request_id_of(request))
     rid = request_id_of(request)
+    # This handler runs after the request-id middleware has reset its contextvar.
+    token = request_id_var.set(rid)
+    try:
+        logger.exception("request %s failed with an unexpected error", rid)
+    finally:
+        request_id_var.reset(token)
     return JSONResponse(
         status_code=500,
         content={"error": "internal_error", "detail": "unexpected error", "request_id": rid},

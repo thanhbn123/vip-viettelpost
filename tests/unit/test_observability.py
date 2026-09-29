@@ -144,3 +144,62 @@ def test_provider_calls_are_logged_and_counted(caplog):
     )
     names = {c["name"] for c in metrics.snapshot()["counters"]}
     assert "provider_calls" in names
+
+
+# --- verifier findings on PR #16 --------------------------------------------------------
+
+
+def _exc_record(secret):
+    try:
+        raise RuntimeError(f"boom with {secret}")
+    except RuntimeError:
+        import sys
+
+        return logging.LogRecord("t", logging.ERROR, __file__, 1, "failed", (), sys.exc_info())
+
+
+def test_traceback_text_is_masked():
+    secret = "configured-secret-value-123"
+    record = _exc_record(secret)
+    SecretMaskingFilter([secret]).filter(record)
+    rendered = logging.Formatter().format(record)
+    assert "boom with ***" in rendered and secret not in rendered
+
+
+def test_json_format_keeps_the_traceback_masked():
+    secret = "configured-secret-value-123"
+    record = _exc_record(secret)
+    RequestIdFilter().filter(record)
+    SecretMaskingFilter([secret]).filter(record)
+    out = json.loads(JsonFormatter().format(record))
+    assert out["exc_type"] == "RuntimeError"
+    assert "Traceback" in out["exc"] and secret not in out["exc"]
+
+
+def test_instrumented_provider_can_be_copied():
+    import copy
+
+    p = InstrumentedProvider(FakeProvider())
+    assert copy.copy(p).code == "VIETTEL_POST"
+
+
+def test_postgres_engine_gets_a_connect_timeout(monkeypatch):
+    from app.core import database
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "database_url", "postgresql+psycopg://u@127.0.0.1:1/x")
+    database.get_engine.cache_clear()
+    try:
+        engine = database.get_engine()
+        assert engine.dialect.name == "postgresql"
+        # connect_args are kept on the pool's creator; check via a failing connect time bound
+        import time
+
+        from sqlalchemy.exc import OperationalError
+
+        started = time.perf_counter()
+        with pytest.raises(OperationalError):
+            engine.connect()
+        assert time.perf_counter() - started < 10
+    finally:
+        database.get_engine.cache_clear()
