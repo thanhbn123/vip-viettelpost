@@ -45,8 +45,8 @@ Workflow gọi `scripts/staging/deploy.sh <phase>`; dispatcher kiểm tên metho
 | Phase | Hook phải làm | Thất bại |
 |---|---|---|
 | `migrate` | Sao lưu + `alembic -c migrations/alembic.ini upgrade head` bằng **ảnh mới** với `STAGING_ENV_FILE`, rồi kiểm `current` = head | exit ≠ 0 → workflow dừng, ảnh cũ vẫn chạy |
-| `start` | Chạy ảnh mới (giữ ảnh/SHA trước để rollback), cổng 8000 sau proxy HTTPS, restart policy | exit ≠ 0 |
-| `rollback` | Quay về release trước (ảnh + nếu cần schema theo `STAGING.md` §5) | exit ≠ 0 → cần người xử |
-| `logs` | In log ứng dụng gần nhất ra stdout (để acceptance quét) | exit ≠ 0 → `log_redaction` = NOT_RUN → không đạt |
+| `start` | Chạy ảnh mới (giữ ảnh/SHA trước để rollback), cổng 8000 sau proxy HTTPS, restart policy. **Hoặc** đổi hẳn sang bản mới, **hoặc** để nguyên bản cũ chạy — không được bỏ dở ở trạng thái không có bản nào | exit ≠ 0 → workflow gọi `rollback` |
+| `rollback` | Quay về release trước (ảnh + nếu cần schema theo `STAGING.md` §5). Phải **an toàn khi chạy lúc không có gì thay đổi** (được gọi cả sau `start` hỏng giữa chừng, bị huỷ, quá giờ) | exit ≠ 0 → cần người xử |
+| `logs` | In log ứng dụng gần nhất của **đúng instance vừa start** ra stdout (JSON, gồm trường `request_id`) — đủ để thấy các request của lần acceptance | exit ≠ 0, rỗng, hoặc không có request id của lần chạy → `log_redaction` = NOT_RUN → không đạt |
 
 Cắm một target = thêm **một** file hook + đặt `STAGING_DEPLOY_METHOD`; **không** sửa mã nghiệp vụ. Tiêu chí nhận hook: có test/bằng chứng chạy được với target thật, qua PR + verifier.

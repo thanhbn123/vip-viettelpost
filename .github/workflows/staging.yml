@@ -165,17 +165,18 @@ jobs:
           VTP_TOKEN: ${{ secrets.VTP_TOKEN }}
           VTP_E2E_SCENARIO: ${{ runner.temp }}/scenario.json
           VTP_E2E_ALLOW_CREATE: ${{ vars.VTP_E2E_ALLOW_CREATE }}
+          VTP_E2E_SHA: ${{ env.SHA }}
           CREATE: ${{ inputs.create_test_order || (github.event_name == 'push' && vars.VTP_E2E_CREATE_TEST_ORDER == 'yes') }}
         run: |
           set -uo pipefail
           args=()
           [ "${CREATE}" = "true" ] && args+=(--create)
-          python -m scripts.vtp_dev_e2e "${args[@]}" --evidence vtp-evidence.json
+          python -m scripts.vtp_dev_e2e "${args[@]}" --evidence "${RUNNER_TEMP}/vtp-evidence.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: vtp-evidence-${{ env.SHA }}
-          path: vtp-evidence.json
+          path: ${{ runner.temp }}/vtp-evidence.json
           if-no-files-found: ignore
 
   deploy:
@@ -198,10 +199,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: image-${{ env.SHA }}
+      # Only evidence produced by THIS run's successful E2E job is used, downloaded outside
+      # the workspace so a file committed to the repo can never be mistaken for it.
       - uses: actions/download-artifact@v4
-        continue-on-error: true
+        if: ${{ needs.vtp-dev-e2e.result == 'success' }}
         with:
           name: vtp-evidence-${{ env.SHA }}
+          path: ${{ runner.temp }}/vtp
       - name: Runtime env file (mode 600, never printed)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -225,10 +229,13 @@ jobs:
           with open(os.path.join(os.environ["RUNNER_TEMP"], "staging.env"), "w") as f:
               for n in names:
                   v = os.environ.get(n, "")
+                  if "\n" in v or "\r" in v:
+                      raise SystemExit(f"{n} contains a line break; refusing to write env file")
                   if v:
                       f.write(f"{n}={v}\n")
           PY
       - name: Migrate (fails closed)
+        id: migrate
         env:
           STAGING_DEPLOY_METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
           STAGING_IMAGE_ARCHIVE: image.tar.gz
@@ -268,12 +275,15 @@ jobs:
         run: |
           set -euo pipefail
           vtp=()
-          [ -f vtp-evidence.json ] && vtp=(--vtp-evidence vtp-evidence.json)
+          ev="${RUNNER_TEMP}/vtp/vtp-evidence.json"
+          [ -f "$ev" ] && vtp=(--vtp-evidence "$ev")
           python -m scripts.staging.acceptance --base-url "${BASE_URL%/}" --kind staging \
             --expected-sha "$SHA" --evidence acceptance-evidence.json \
             --logs-cmd "bash scripts/staging/deploy.sh logs" "${vtp[@]}"
+      # Also after a partial `start` or a cancellation/timeout: the hook's rollback must be
+      # safe to run when nothing changed (docs/STAGING_DEPLOYMENT.md, deploy contract).
       - name: Roll back to the previous release on failure
-        if: ${{ failure() && steps.start.outcome == 'success' }}
+        if: ${{ (failure() || cancelled()) && (steps.start.outcome == 'success' || steps.start.outcome == 'failure') }}
         env:
           STAGING_DEPLOY_METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
           STAGING_SHA: ${{ env.SHA }}

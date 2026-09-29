@@ -29,6 +29,7 @@ import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from urllib.parse import unquote
 
 import httpx
 
@@ -80,6 +81,9 @@ def secret_values(env: dict[str, str]) -> dict[str, list[str]]:
         match = re.match(r"^[a-z0-9+]+:" + r"//[^:/@]+:([^@]+)@", value)
         if match and len(match.group(1)) >= 6:
             parts.append(match.group(1))
+            decoded = unquote(match.group(1))
+            if decoded != match.group(1):
+                parts.append(decoded)
         if parts:
             out[name] = parts
     return out
@@ -108,21 +112,23 @@ def run(
     )
     bodies: list[str] = []
     secrets = secret_values(env)
+    # Every request of this run carries this id; the log excerpt must contain it to prove the
+    # logs come from the instance that served this run (M1, verifier PR #28).
+    marker = f"accept-{expected_sha[:8]}-{int(time.time())}"
+    client.headers["X-Request-ID"] = marker
+
+    def capture(response: httpx.Response) -> None:  # every response, smoke included (M2)
+        response.read()
+        bodies.append(response.text)
+
+    client.event_hooks.setdefault("response", []).append(capture)
     api_key = env.get("ACCEPT_API_KEY", "")
     hook_secret = env.get("ACCEPT_WEBHOOK_SECRET", "")
 
     def add(name, ok, detail=""):
         ev.checks.append(Check(name, "PASS" if ok else "FAIL", detail))
 
-    def get(path, **kw):
-        r = client.get(path, **kw)
-        bodies.append(r.text)
-        return r
-
-    def post(path, **kw):
-        r = client.post(path, **kw)
-        bodies.append(r.text)
-        return r
+    get, post = client.get, client.post
 
     try:
         r = get("/health")
@@ -135,7 +141,7 @@ def run(
         add("deployed_sha", version == expected_sha, f"running={version}")
         mig = (ready.get("checks") or {}).get("migrations", {})
         add("migration_head", bool(mig.get("ok")), f"current={mig.get('current')}")
-    except (httpx.HTTPError, ValueError) as exc:
+    except (httpx.HTTPError, ValueError, AttributeError, TypeError) as exc:
         for name in ("health", "readiness", "deployed_sha", "migration_head"):
             if name not in {c.name for c in ev.checks}:
                 add(name, False, type(exc).__name__)
@@ -180,11 +186,12 @@ def run(
             ev.checks.append(
                 Check("webhook_idempotency", "NOT_RUN", "ACCEPT_WEBHOOK_SECRET not provided")
             )
-    except (httpx.HTTPError, ValueError) as exc:
+    except (httpx.HTTPError, ValueError, AttributeError, TypeError) as exc:
         for name in ("webhook_reachable", "webhook_malformed_rejected", "webhook_idempotency"):
             if name not in {c.name for c in ev.checks}:
                 add(name, False, type(exc).__name__)
 
+    client.event_hooks["response"].remove(capture)
     hits = leaked("\n".join(bodies), secrets)
     add(
         "no_secret_in_responses",
@@ -194,8 +201,12 @@ def run(
 
     if callable(logs):
         logs = logs()
-    if logs is None:
+    if logs is None or not logs.strip():
         ev.checks.append(Check("log_redaction", "NOT_RUN", "no log excerpt provided"))
+    elif marker not in logs:
+        ev.checks.append(
+            Check("log_redaction", "NOT_RUN", "log excerpt does not contain this run's request id")
+        )
     else:
         hits = leaked(logs, secrets)
         jwt = bool(JWT.search(logs))
@@ -210,10 +221,19 @@ def run(
     if vtp_evidence is None:
         ev.g08 = "BLOCKED_EXTERNAL_CREDENTIAL"
     else:
-        steps = {s["name"]: s["status"] for s in vtp_evidence.get("steps", [])}
-        required = ("authenticate", "get_services", "calculate_fee")
-        is_dev = vtp_evidence.get("base_url", "").rstrip("/") == "https://partnerdev.viettelpost.vn"
-        ev.g08 = "PASS" if is_dev and all(steps.get(n) == "PASS" for n in required) else "FAIL"
+        try:
+            steps = {s["name"]: s["status"] for s in vtp_evidence.get("steps", [])}
+            required = ("authenticate", "get_services", "calculate_fee")
+            base = str(vtp_evidence.get("base_url", "")).rstrip("/")
+            same_sha = vtp_evidence.get("sha") == expected_sha  # evidence of THIS run (M3)
+            ok = (
+                base == "https://partnerdev.viettelpost.vn"
+                and same_sha
+                and all(steps.get(n) == "PASS" for n in required)
+            )
+            ev.g08 = "PASS" if ok else "FAIL"
+        except (AttributeError, TypeError, KeyError):
+            ev.g08 = "FAIL"
 
     statuses = {c.name: c.status for c in ev.checks}
     g15_ok = all(statuses.get(n) == "PASS" for n in G15_CHECKS)
@@ -222,7 +242,7 @@ def run(
         ev.verdict = "ACCEPTED" if g15_ok else "NOT_ACCEPTED"
     else:
         ev.g15 = "NOT_STAGING"
-        ev.g08 = "NOT_STAGING" if vtp_evidence is None else ev.g08
+        ev.g08 = "NOT_STAGING"  # rehearsal never reports a gate result (L3)
         ev.verdict = "REHEARSAL_PASS" if g15_ok else "REHEARSAL_FAIL"
     return ev
 
@@ -257,7 +277,13 @@ def main(
             return (done.stdout + done.stderr) if done.returncode == 0 else None
         return Path(args.logs).read_text(errors="replace") if args.logs else None
 
-    vtp = json.loads(Path(args.vtp_evidence).read_text()) if args.vtp_evidence else None
+    try:
+        vtp = json.loads(Path(args.vtp_evidence).read_text()) if args.vtp_evidence else None
+    except (OSError, ValueError):
+        vtp = {"malformed": True}
+    if args.kind == "staging" and "@" in args.base_url.split("//", 1)[-1].split("/", 1)[0]:
+        print("staging base URL must not contain user info")
+        return 2
     with httpx.Client(base_url=args.base_url, timeout=15.0, transport=transport) as client:
         ev = run(
             client,

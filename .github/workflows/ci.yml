@@ -127,7 +127,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements-dev.txt
-      - name: Rehearse preflight -> image -> migrate -> start -> acceptance
+      - name: Rehearse image -> migrate -> start -> acceptance (no preflight, no target)
         env:
           GIT_SHA: ${{ github.sha }}
           REHEARSAL_DB_URL: postgresql+psycopg://ci:ci-only-throwaway@127.0.0.1:5432/rehearsal

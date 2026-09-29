@@ -53,7 +53,12 @@ ENV = {
 
 def test_all_checks_pass_on_a_correct_deployment(deployed):
     ev = acceptance.run(
-        deployed, ENV, kind="staging", expected_sha=SHA, logs="INFO clean line\n", vtp_evidence=None
+        deployed,
+        ENV,
+        kind="staging",
+        expected_sha=SHA,
+        logs=lambda: f"INFO clean {deployed.headers['X-Request-ID']}\n",
+        vtp_evidence=None,
     )
     statuses = {c.name: c.status for c in ev.checks}
     assert statuses == dict.fromkeys(acceptance.G15_CHECKS, "PASS"), ev.checks
@@ -62,7 +67,12 @@ def test_all_checks_pass_on_a_correct_deployment(deployed):
 
 def test_rehearsal_is_never_accepted(deployed):
     ev = acceptance.run(
-        deployed, ENV, kind="rehearsal", expected_sha=SHA, logs="ok\n", vtp_evidence=None
+        deployed,
+        ENV,
+        kind="rehearsal",
+        expected_sha=SHA,
+        logs=lambda: f"ok {deployed.headers['X-Request-ID']}\n",
+        vtp_evidence=None,
     )
     assert ev.verdict == "REHEARSAL_PASS" and ev.g15 == "NOT_STAGING"
 
@@ -76,7 +86,12 @@ def test_missing_log_excerpt_blocks_acceptance(deployed):
 
 def test_wrong_running_sha_fails(deployed):
     ev = acceptance.run(
-        deployed, ENV, kind="staging", expected_sha="c" * 40, logs="ok\n", vtp_evidence=None
+        deployed,
+        ENV,
+        kind="staging",
+        expected_sha="c" * 40,
+        logs=lambda: f"ok {deployed.headers['X-Request-ID']}\n",
+        vtp_evidence=None,
     )
     assert {c.name: c.status for c in ev.checks}["deployed_sha"] == "FAIL"
     assert ev.verdict == "NOT_ACCEPTED"
@@ -88,7 +103,7 @@ def test_secret_in_logs_is_detected_by_name_only(deployed):
         ENV,
         kind="staging",
         expected_sha=SHA,
-        logs=f"oops token={HOOK_SECRET}\n",
+        logs=lambda: f"{deployed.headers['X-Request-ID']} oops token={HOOK_SECRET}\n",
         vtp_evidence=None,
     )
     check = {c.name: c for c in ev.checks}["log_redaction"]
@@ -99,17 +114,28 @@ def test_secret_in_logs_is_detected_by_name_only(deployed):
 def test_g08_needs_real_dev_evidence(deployed):
     good = {
         "base_url": "https://partnerdev.viettelpost.vn",
+        "sha": SHA,
         "steps": [
             {"name": n, "status": "PASS"} for n in ("authenticate", "get_services", "calculate_fee")
         ],
     }
     ev = acceptance.run(
-        deployed, ENV, kind="staging", expected_sha=SHA, logs="ok\n", vtp_evidence=good
+        deployed,
+        ENV,
+        kind="staging",
+        expected_sha=SHA,
+        logs=lambda: f"ok {deployed.headers['X-Request-ID']}\n",
+        vtp_evidence=good,
     )
     assert ev.g08 == "PASS"
     mocked = {**good, "base_url": "https://vtp.test"}
     ev = acceptance.run(
-        deployed, ENV, kind="staging", expected_sha=SHA, logs="ok\n", vtp_evidence=mocked
+        deployed,
+        ENV,
+        kind="staging",
+        expected_sha=SHA,
+        logs=lambda: f"ok {deployed.headers['X-Request-ID']}\n",
+        vtp_evidence=mocked,
     )
     assert ev.g08 == "FAIL"
 
@@ -155,9 +181,97 @@ def test_log_provider_is_called_after_the_http_checks(deployed):
 
     def provider():
         calls.append(len(calls))
-        return "clean\n"
+        return f"clean {deployed.headers['X-Request-ID']}\n"
 
     ev = acceptance.run(
         deployed, ENV, kind="staging", expected_sha=SHA, logs=provider, vtp_evidence=None
     )
     assert calls == [0] and ev.verdict == "ACCEPTED"
+
+
+# --- verifier findings on PR #28 --------------------------------------------------------
+
+
+def test_empty_or_foreign_logs_are_not_run(deployed):
+    for logs in ("", "   \n", "INFO lines from some other instance\n"):
+        ev = acceptance.run(
+            deployed, ENV, kind="staging", expected_sha=SHA, logs=logs, vtp_evidence=None
+        )
+        assert {c.name: c.status for c in ev.checks}["log_redaction"] == "NOT_RUN"
+        assert ev.verdict == "NOT_ACCEPTED"
+
+
+def test_smoke_responses_are_scanned_too(deployed):
+    ev = acceptance.run(
+        deployed,
+        ENV,
+        kind="staging",
+        expected_sha=SHA,
+        logs=lambda: deployed.headers["X-Request-ID"],
+        vtp_evidence=None,
+    )
+    detail = {c.name: c.detail for c in ev.checks}["no_secret_in_responses"]
+    assert int(detail.split()[0]) >= 15  # 4 health/ready + 9+ smoke + 4 webhook
+
+
+def test_vtp_evidence_must_belong_to_this_sha(deployed):
+    base = {
+        "base_url": "https://partnerdev.viettelpost.vn",
+        "steps": [
+            {"name": n, "status": "PASS"} for n in ("authenticate", "get_services", "calculate_fee")
+        ],
+    }
+    for forged in (base, {**base, "sha": "d" * 40}, {"steps": "nonsense"}, {"malformed": True}):
+        ev = acceptance.run(
+            deployed,
+            ENV,
+            kind="staging",
+            expected_sha=SHA,
+            logs=lambda: deployed.headers["X-Request-ID"],
+            vtp_evidence=forged,
+        )
+        assert ev.g08 == "FAIL"
+
+
+def test_rehearsal_never_reports_g08(deployed):
+    good = {
+        "base_url": "https://partnerdev.viettelpost.vn",
+        "sha": SHA,
+        "steps": [
+            {"name": n, "status": "PASS"} for n in ("authenticate", "get_services", "calculate_fee")
+        ],
+    }
+    ev = acceptance.run(
+        deployed,
+        ENV,
+        kind="rehearsal",
+        expected_sha=SHA,
+        logs=lambda: deployed.headers["X-Request-ID"],
+        vtp_evidence=good,
+    )
+    assert ev.g08 == "NOT_STAGING"
+
+
+def test_url_password_is_found_decoded_too():
+    env = {"ACCEPT_SCAN_VARS": "DB", "DB": "postgresql://u:" + "p%40ssword99" + "@h/db"}
+    secrets = acceptance.secret_values(env)
+    assert acceptance.leaked("log p@ssword99", secrets) == ["DB"]
+
+
+def test_userinfo_in_staging_url_is_refused(tmp_path):
+    assert (
+        acceptance.main(
+            [
+                "--base-url",
+                "https://u:" + "p@x",
+                "--kind",
+                "staging",
+                "--expected-sha",
+                SHA,
+                "--evidence",
+                str(tmp_path / "e"),
+            ],
+            env={},
+        )
+        == 2
+    )
