@@ -137,6 +137,7 @@ def test_chunked_body_without_content_length_is_limited_before_auth(keyed, monke
         # generator content -> Transfer-Encoding: chunked, no Content-Length; NO API key
         unauthenticated = client.post(f"{BASE}/quote", content=_chunks(5000))
         assert unauthenticated.status_code == 413
+        assert unauthenticated.headers["x-frame-options"] == "DENY"
         with_key = client.post(f"{BASE}/quote", content=_chunks(5000), headers={"X-API-Key": KEY})
         assert with_key.status_code == 413
         small = client.post(f"{BASE}/quote", content=_chunks(500), headers={"X-API-Key": KEY})
