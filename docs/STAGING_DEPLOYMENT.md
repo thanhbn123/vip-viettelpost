@@ -29,3 +29,24 @@ Trạng thái target: **`STAGING_TARGET_MISSING`** (2026-09-29). Workflow `.gith
 - PostgreSQL 16: host, port, database, user (mật khẩu đưa thẳng vào secret `DATABASE_URL`).
 
 Khi có target: em cài cơ chế deploy tương ứng vào bước "Deploy" của `staging.yml`, đặt tên secret của cơ chế đó vào `GITHUB_ENVIRONMENT_STAGING.md` §B, rồi chạy G15 theo `STAGING.md` §9.
+
+## Deploy contract (CR-STG-001)
+
+`STAGING_DEPLOY_METHOD` là **allowlist**: một method chỉ tồn tại khi file hook `scripts/staging/methods/<method>.sh` được commit (tên khớp `^[a-z0-9][a-z0-9-]{1,40}$`). **Hiện chưa có hook nào** — chủ dự án chưa chọn target, nên em không tự chọn VPS/nền tảng nào.
+
+Workflow gọi `scripts/staging/deploy.sh <phase>`; dispatcher kiểm tên method, hook tồn tại, `STAGING_SHA` 40-hex, rồi chạy `bash <hook> <phase>`. Hook nhận:
+
+| Biến | Ý nghĩa |
+|---|---|
+| `STAGING_SHA` | commit đang triển khai |
+| `STAGING_IMAGE_ARCHIVE` | ảnh `docker save \| gzip` của đúng SHA (tag `vip-shipping-gateway:staging-<sha>`, có `APP_GIT_SHA`) — cho `migrate`, `start` |
+| `STAGING_ENV_FILE` | file quyền 600 chứa biến runtime (tạo từ secret, không in) — cho `migrate`, `start` |
+
+| Phase | Hook phải làm | Thất bại |
+|---|---|---|
+| `migrate` | Sao lưu + `alembic -c migrations/alembic.ini upgrade head` bằng **ảnh mới** với `STAGING_ENV_FILE`, rồi kiểm `current` = head | exit ≠ 0 → workflow dừng, ảnh cũ vẫn chạy |
+| `start` | Chạy ảnh mới (giữ ảnh/SHA trước để rollback), cổng 8000 sau proxy HTTPS, restart policy. **Hoặc** đổi hẳn sang bản mới, **hoặc** để nguyên bản cũ chạy — không được bỏ dở ở trạng thái không có bản nào | exit ≠ 0 → workflow gọi `rollback` |
+| `rollback` | Quay về release trước (ảnh + nếu cần schema theo `STAGING.md` §5). Phải **an toàn khi chạy lúc không có gì thay đổi** (được gọi cả sau `start` hỏng giữa chừng, bị huỷ, quá giờ) | exit ≠ 0 → cần người xử |
+| `logs` | In log ứng dụng gần nhất của **đúng instance vừa start** ra stdout (JSON, gồm trường `request_id`) — đủ để thấy các request của lần acceptance | exit ≠ 0, rỗng, hoặc không có request id của lần chạy → `log_redaction` = NOT_RUN → không đạt |
+
+Cắm một target = thêm **một** file hook + đặt `STAGING_DEPLOY_METHOD`; **không** sửa mã nghiệp vụ. Tiêu chí nhận hook: có test/bằng chứng chạy được với target thật, qua PR + verifier.

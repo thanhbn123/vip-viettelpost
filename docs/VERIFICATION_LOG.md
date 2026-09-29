@@ -154,3 +154,21 @@ Test #1 và #2 **hỏng trên mã cũ** (2 failed) và đạt trên mã sửa.
 | 7 | LOW | Tài liệu tự mâu thuẫn (Environment đã tạo/chưa, nhánh, danh sách biến, "chạy tay", `VTP_BASE_URL` REQUIRED) | Sửa |
 | 8 | LOW | "Dùng được ngay" quá rộng (commit cũ không có `staging.yml`) | Ghi rõ từ commit merge PR #25 trở đi |
 | 9 | LOW | `checkout` giữ token; tự duyệt | `persist-credentials: false`; ghi rõ tự duyệt |
+
+## PR #28 — CR-STG-001 staging acceptance pipeline
+
+- Lần 1, HEAD `29c4524`: 441 passed / 10 skipped (SQLite); 594 passed / 1 skipped (PG riêng); CI rehearsal 10/10 PASS (`REHEARSAL_PASS`). **PASS**, kèm (sửa trước merge):
+
+| # | Mức | Phát hiện | Xử lý |
+|---|---|---|---|
+| M1 | MEDIUM | Log rỗng (`--logs-cmd true`) → `log_redaction` PASS → **ACCEPTED** | Log rỗng → NOT_RUN; log phải chứa `X-Request-ID` của lần chạy (gắn vào mọi request) |
+| M2 | MEDIUM | Không quét 9 phản hồi smoke (gồm danh sách vận đơn, `/metrics`) | Bắt mọi phản hồi qua event hook của client |
+| M3 | MEDIUM | G08 PASS từ file giả/cũ; file `vtp-evidence.json` commit vào repo sẽ được dùng khi E2E bị bỏ qua | Bằng chứng gắn `sha`; tải ngoài workspace, chỉ khi job E2E thành công; file hỏng → FAIL |
+| M4 | MEDIUM | `start` hỏng giữa chừng / huỷ / quá giờ → không rollback | Rollback khi `start` đã chạy và job hỏng hoặc bị huỷ; hợp đồng: `start` không được bỏ dở, `rollback` an toàn khi không có gì đổi |
+| L1 | LOW | Readiness trả kiểu lạ → crash không có bằng chứng; file E2E hỏng làm crash | Bắt lỗi, ghi FAIL |
+| L2 | LOW | Chỉ quét mật khẩu CSDL dạng mã hoá URL | Quét cả dạng đã giải mã |
+| L3 | LOW | Rehearsal có thể báo G08 | Rehearsal luôn G08 = NOT_STAGING |
+| L4 | LOW | Tài liệu: "5 phút", tên bước rehearsal, E2E bị bỏ qua | Sửa câu chữ |
+| L5 | LOW | Ghi chú D-BIZ-001 có giờ không chính xác | Ghi đúng mốc đo được |
+| L6 | LOW | Giá trị có xuống dòng chèn dòng env; userinfo trong URL | Từ chối xuống dòng; acceptance từ chối URL có userinfo |
+- Lần 2, HEAD `7d1bc6c`: 447 passed / 10 skipped; 604 passed / 1 skipped; CI rehearsal 10/10 (log có request id, 15 phản hồi được quét). **FAIL**: H1 **HIGH** — `scripts/vtp_dev_e2e.py` không ghi `sha` (bước sửa trước **không áp được** mà không bị phát hiện), nên bằng chứng E2E thật luôn cho G08 = FAIL; test chỉ đạt nhờ fixture tự thêm `sha`. Sửa: script ghi `sha` từ `VTP_E2E_SHA`; test đầu-cuối đưa **đúng file script sinh ra** vào acceptance (hỏng khi bỏ dòng ghi `sha`). LOW: rollback thêm trường hợp `start` bị huỷ giữa chừng; file env chỉ mở sau khi kiểm xong mọi giá trị; mã request id thêm phần ngẫu nhiên 16 hex (không đoán trước được).
