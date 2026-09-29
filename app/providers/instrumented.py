@@ -77,7 +77,12 @@ class InstrumentedProvider(ShippingProvider):
                     delay = self._retry.delay(attempt)
                     logger.warning(
                         "provider_retry provider=%s op=%s attempt=%s/%s error=%s delay_s=%.2f",
-                        self.code, op, attempt, attempts, outcome, delay,
+                        self.code,
+                        op,
+                        attempt,
+                        attempts,
+                        outcome,
+                        delay,
                     )
                     metrics.inc("provider_retries", provider=self.code, op=op)
                     await self._sleep(delay)
@@ -89,7 +94,11 @@ class InstrumentedProvider(ShippingProvider):
                 metrics.inc("provider_calls", provider=self.code, op=op, outcome=outcome)
                 logger.info(
                     "provider_call provider=%s op=%s attempt=%s outcome=%s duration_ms=%.1f",
-                    self.code, op, attempt, outcome, elapsed * 1000,
+                    self.code,
+                    op,
+                    attempt,
+                    outcome,
+                    elapsed * 1000,
                 )
         raise AssertionError("unreachable")  # pragma: no cover
 

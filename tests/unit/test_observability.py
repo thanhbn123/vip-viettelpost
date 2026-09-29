@@ -138,7 +138,9 @@ def test_provider_calls_are_logged_and_counted(caplog):
     p = InstrumentedProvider(Flaky([]), retry=RetryPolicy(max_attempts=1))
     with caplog.at_level(logging.INFO, logger="app.providers.calls"):
         run(p.calculate_fee(None))
-    assert any("op=calculate_fee" in r.getMessage() and "outcome=ok" in r.getMessage()
-               for r in caplog.records)
+    assert any(
+        "op=calculate_fee" in r.getMessage() and "outcome=ok" in r.getMessage()
+        for r in caplog.records
+    )
     names = {c["name"] for c in metrics.snapshot()["counters"]}
     assert "provider_calls" in names
