@@ -17,16 +17,17 @@ _TEST_DB_DIR = tempfile.mkdtemp(prefix="vip-shipping-tests-")
 os.environ["DATABASE_URL"] = f"sqlite:///{Path(_TEST_DB_DIR) / 'default.db'}"
 
 
+import pytest
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import create_engine, text
+
+
 def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001 - pytest hook signature
     import shutil
 
     shutil.rmtree(_TEST_DB_DIR, ignore_errors=True)
 
-
-import pytest
-from alembic import command
-from alembic.config import Config
-from sqlalchemy import create_engine, text
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL")
