@@ -190,3 +190,68 @@ def test_fee_reconciliation_needs_expected_fee(fin, monkeypatch):
         json={"kind": "FEE", "actual_amount": {"amount": "1"}},
     )
     assert r.status_code == 422
+
+
+# --- verifier findings on PR #14 --------------------------------------------------------
+
+
+def collect(client, sid, amount):
+    return client.post(f"{BASE}/shipments/{sid}/cod/collected", json={"amount": {"amount": amount}})
+
+
+def remit(client, sid, amount, ref="R"):
+    return client.post(
+        f"{BASE}/shipments/{sid}/cod/remitted",
+        json={"amount": {"amount": amount}, "reference": ref},
+    )
+
+
+def test_second_remit_after_remitted_is_refused(fin):
+    _, client = fin
+    sid = ship(client)
+    collect(client, sid, "150000")
+    assert remit(client, sid, "150000").json()["cod_status"] == "REMITTED"
+    second = remit(client, sid, "1", "R2")
+    assert second.status_code == 409
+    view = client.get(f"{BASE}/shipments/{sid}/finance").json()
+    assert D(view["cod_remitted"]) == D("150000") and view["remittance_reference"] == "R"
+
+
+def test_remitted_cannot_exceed_collected(fin):
+    _, client = fin
+    sid = ship(client)
+    collect(client, sid, "150000")
+    assert remit(client, sid, "999999").status_code == 422
+    assert remit(client, sid, "100000").json()["cod_status"] == "COLLECTED"  # partial remit
+    assert collect(client, sid, "50000").status_code == 422  # below remitted
+    view = collect(client, sid, "100000").json()  # correction down to the remitted amount
+    assert view["cod_status"] == "REMITTED"  # derived: remitted == collected
+
+
+def test_status_always_matches_the_numbers(fin):
+    from app.services.finance import derive_cod_status as d
+
+    assert d(D(100), None, None) == "PENDING"
+    assert d(D(100), D(100), None) == "COLLECTED"
+    assert d(D(100), D(50), None) == "PARTIAL"
+    assert d(D(100), D(50), D(50)) == "REMITTED"
+    assert d(D(100), D(100), D(40)) == "COLLECTED"
+
+
+def test_oversized_fee_total_is_422_not_500(fin):
+    _, client = fin
+    sid = ship(client)
+    body = {"fee_type": "SHIPPING", "source": "PROVIDER_ACTUAL", "amount": "9000000000000000"}
+    assert client.post(f"{BASE}/shipments/{sid}/fees", json=body).status_code == 201
+    second = client.post(f"{BASE}/shipments/{sid}/fees", json=body)
+    assert second.status_code == 422 and second.json()["error"] == "invalid_finance_operation"
+
+
+def test_cod_reconciliation_without_cod_is_refused(fin):
+    _, client = fin
+    sid = ship(client, order_id="ORD-NC", cod=None)
+    r = client.post(
+        f"{BASE}/shipments/{sid}/reconciliations",
+        json={"kind": "COD", "actual_amount": {"amount": "0"}},
+    )
+    assert r.status_code == 422
