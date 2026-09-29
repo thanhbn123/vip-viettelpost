@@ -55,9 +55,7 @@ def list_shipments(
         )
     )
     return ShipmentPageView(
-        items=[
-            ShipmentSummaryView(**{**asdict(i), "status": i.status.value}) for i in page.items
-        ],
+        items=[ShipmentSummaryView(**{**asdict(i), "status": i.status.value}) for i in page.items],
         total=page.total,
         limit=page.limit,
         offset=page.offset,
@@ -93,6 +91,7 @@ def add_note(
     shipment_id: int, body: NoteBody, request: Request, ops: Ops, actor: CurrentActor
 ) -> AuditView:
     return AuditView(
-        **asdict(ops.add_note(shipment_id, body.text, actor=actor, request_id=request_id_of(request)))
+        **asdict(
+            ops.add_note(shipment_id, body.text, actor=actor, request_id=request_id_of(request))
+        )
     )
-

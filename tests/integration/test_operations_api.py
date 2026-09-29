@@ -7,7 +7,7 @@ from app.api.dependencies import get_operations
 from app.main import app
 from app.services.operations import ShipmentOperations
 from tests.integration.test_shipping_api import BASE, create_body
-from tests.integration.test_webhook_to_shipment import HOOK, make_env, vtp  # noqa: F401
+from tests.integration.test_webhook_to_shipment import HOOK, vtp
 
 
 @pytest.fixture
@@ -45,7 +45,9 @@ def test_list_filters_and_pagination(ops_env):
     assert client.get(f"{BASE}/shipments", params={"requires_review": "false"}).json()["total"] == 1
 
     assert client.get(f"{BASE}/shipments", params={"order_id": "ORD-A"}).json()["total"] == 1
-    assert client.get(f"{BASE}/shipments", params={"tracking_number": "TRK0002"}).json()["total"] == 1
+    assert (
+        client.get(f"{BASE}/shipments", params={"tracking_number": "TRK0002"}).json()["total"] == 1
+    )
     assert client.get(f"{BASE}/shipments", params={"provider": "VIETTEL_POST"}).json()["total"] == 2
     assert client.get(f"{BASE}/shipments", params={"provider": "GHN"}).json()["total"] == 0
 
@@ -55,7 +57,10 @@ def test_list_filters_and_pagination(ops_env):
     assert client.get(f"{BASE}/shipments", params={"limit": 1000}).status_code == 422
     future = client.get(f"{BASE}/shipments", params={"created_from": "2999-01-01T00:00:00+00:00"})
     assert future.json()["total"] == 0
-    assert client.get(f"{BASE}/shipments", params={"created_from": "2026-01-01T00:00:00"}).status_code == 422
+    assert (
+        client.get(f"{BASE}/shipments", params={"created_from": "2026-01-01T00:00:00"}).status_code
+        == 422
+    )
 
 
 def test_history_provider_status_and_audit(ops_env):
@@ -65,7 +70,9 @@ def test_history_provider_status_and_audit(ops_env):
     client.post(HOOK, content=vtp(505, "29/09/2026 11:00:00", number=s["tracking_number"]))
 
     events = client.get(f"{BASE}/shipments/{s['id']}/events").json()
-    assert [(e["canonical_status"], e["provider_status"], e["requires_review"]) for e in events] == [
+    assert [
+        (e["canonical_status"], e["provider_status"], e["requires_review"]) for e in events
+    ] == [
         ("PICKED", "200", False),
         (None, "505", True),
     ]
@@ -94,9 +101,14 @@ def test_operator_note(ops_env):
         "Đã gọi VTP xác nhận",
         "note-1",
     )
-    assert client.get(f"{BASE}/shipments/{s['id']}").json()["status"] == "CREATED"  # no state change
+    assert (
+        client.get(f"{BASE}/shipments/{s['id']}").json()["status"] == "CREATED"
+    )  # no state change
     assert client.post(f"{BASE}/shipments/{s['id']}/notes", json={"text": " "}).status_code == 422
-    assert client.post(f"{BASE}/shipments/{s['id']}/notes", json={"text": "x" * 501}).status_code == 422
+    assert (
+        client.post(f"{BASE}/shipments/{s['id']}/notes", json={"text": "x" * 501}).status_code
+        == 422
+    )
 
 
 @pytest.mark.parametrize("suffix", ["events", "webhook-events", "audit"])
@@ -105,5 +117,3 @@ def test_unknown_shipment_is_404(ops_env, suffix):
     response = client.get(f"{BASE}/shipments/9999/{suffix}")
     assert response.status_code == 404 and response.json()["error"] == "shipment_not_found"
     assert client.post(f"{BASE}/shipments/9999/notes", json={"text": "x"}).status_code == 404
-
-
