@@ -190,7 +190,7 @@ Việc còn lại ngoài VPS: đăng ký URL webhook `https://<tên miền>/api/
 | `API_KEYS` | secret | có | C2 |
 | `SMOKE_API_KEY` | secret | có (acceptance) | C2 |
 | `STAGING_SSH_HOST`, `STAGING_SSH_USER`, `STAGING_SSH_PRIVATE_KEY`, `STAGING_SSH_KNOWN_HOSTS` | secret | có (method `vps`) | C2 |
-| `VTP_TOKEN` **hoặc** `VTP_USERNAME` + `VTP_PASSWORD` | secret | có cho G08 | C2 (credential VTP **development**) |
+| `VTP_TOKEN` **hoặc** `VTP_USERNAME` + `VTP_PASSWORD` | secret | **có** — G15 cũng cần (`/health/ready` trả 503 khi thiếu, preflight G15 chặn từ đầu) và G08 | C2 (credential VTP **development**) |
 | `DATABASE_URL_PSQL` | secret | không | không cần — tự suy từ `DATABASE_URL` |
 | `STAGING_BASE_URL`, `STAGING_DEPLOY_METHOD`, `STAGING_APP_DIR` | variable | có | C3 |
 | `STAGING_DOCKER_NETWORK` | variable | có **với kiến trúc này** (DB ở mạng `vip-staging`) | C3 |
