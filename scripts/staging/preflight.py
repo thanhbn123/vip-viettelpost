@@ -55,9 +55,16 @@ def check(env: dict[str, str], gate: str) -> dict:
         if not _has(env, name):
             missing.append(f"secret {name}")
 
+    vtp_missing = "secret VTP_TOKEN or secrets VTP_USERNAME + VTP_PASSWORD"
+    has_vtp = any(all(_has(env, n) for n in group) for group in VTP_CREDENTIALS)
+
     if gate in ("g15", "all"):
         for name in G15_SECRETS:
             need_secret(name)
+        # /health/ready (provider_credentials) is 503 without it, so a deploy would pass
+        # this gate and then always fail at start (CR-STG-005). Never a fake credential.
+        if not has_vtp:
+            missing.append(vtp_missing)
         base = env.get("STAGING_BASE_URL", "").strip()
         if not base:
             missing.append("variable STAGING_BASE_URL")
@@ -80,8 +87,8 @@ def check(env: dict[str, str], gate: str) -> dict:
                     missing.append(f"variable {name}")
 
     if gate in ("g08", "all"):
-        if not any(all(_has(env, n) for n in group) for group in VTP_CREDENTIALS):
-            missing.append("secret VTP_TOKEN or secrets VTP_USERNAME + VTP_PASSWORD")
+        if not has_vtp and vtp_missing not in missing:
+            missing.append(vtp_missing)
         scenario = env.get("VTP_E2E_SCENARIO_JSON", "").strip()
         if not scenario:
             missing.append("variable VTP_E2E_SCENARIO_JSON")

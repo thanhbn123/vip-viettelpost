@@ -90,3 +90,35 @@ def test_vps_method_needs_its_ssh_inputs(capsys):
     env.update({f"HAS_{n}": "true" for n in preflight.METHOD_REQUIREMENTS["vps"]["secrets"]})
     env["STAGING_APP_DIR"] = "/srv/vip-staging"
     assert preflight.check(env, "g15")["ok"] is True
+
+
+def test_g15_requires_a_vtp_credential_because_readiness_does():
+    """CR-STG-005: app/api/health.py provider_credentials makes /health/ready 503 without it."""
+    base = {
+        **{f"HAS_{n}": "true" for n in preflight.G15_SECRETS},
+        **{f"HAS_{n}": "true" for n in preflight.METHOD_REQUIREMENTS["vps"]["secrets"]},
+        "STAGING_BASE_URL": "https://s.example.test",
+        "STAGING_DEPLOY_METHOD": "vps",
+        "STAGING_APP_DIR": "/srv/vip-staging",
+    }
+    result = preflight.check(base, "g15")
+    assert not result["ok"]
+    assert result["missing"] == ["secret VTP_TOKEN or secrets VTP_USERNAME + VTP_PASSWORD"]
+    assert preflight.check({**base, "HAS_VTP_TOKEN": "true"}, "g15")["ok"] is True
+    pair = {**base, "HAS_VTP_USERNAME": "true", "HAS_VTP_PASSWORD": "true"}
+    assert preflight.check(pair, "g15")["ok"] is True
+    # gate "all" reports it once, not twice
+    assert (
+        preflight.check(base, "all")["missing"].count(
+            "secret VTP_TOKEN or secrets VTP_USERNAME + VTP_PASSWORD"
+        )
+        == 1
+    )
+
+
+def test_readiness_still_requires_provider_credentials():
+    """If readiness ever stops needing the credential, revisit the g15 rule above."""
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[2] / "app" / "api" / "health.py").read_text()
+    assert 'checks["provider_credentials"]' in src
