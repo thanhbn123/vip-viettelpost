@@ -185,6 +185,6 @@ def test_runbook_names_match_code():
     secrets = re.findall(r"gh secret set ([A-Z_]+)", text)
     assert len(variables) >= 6 and len(secrets) >= 10
     for name in variables:
-        assert f"vars.{name}" in workflow, name
+        assert re.search(rf"\bvars\.{name}\b", workflow), name
     for name in secrets:
-        assert f"secrets.{name}" in workflow, name
+        assert re.search(rf"\bsecrets\.{name}\b", workflow), name
