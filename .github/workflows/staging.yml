@@ -76,6 +76,9 @@ jobs:
     environment: staging
     outputs:
       g08_ready: ${{ steps.g08.outputs.ready }}
+      # Decided HERE, inside Environment `staging`: environment variables such as
+      # RUN_VTP_DEV_E2E are not visible to a job-level `if:` (CR-STG-006).
+      run_e2e: ${{ steps.g08.outputs.run_e2e }}
     env:
       # GitHub evaluates these to true/false; no secret value reaches the script.
       HAS_DATABASE_URL: ${{ secrets.DATABASE_URL != '' }}
@@ -106,11 +109,16 @@ jobs:
           python-version: "3.11"
       - name: G08 readiness (does not stop the run)
         id: g08
+        env:
+          # dispatch: input; push: Environment variable RUN_VTP_DEV_E2E == 'true'.
+          WANT_E2E: ${{ inputs.run_vtp_dev_e2e || (github.event_name == 'push' && vars.RUN_VTP_DEV_E2E == 'true') }}
         run: |
-          if python -m scripts.staging.preflight --gate g08; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+          if python -m scripts.staging.preflight --gate g08; then ready=true; else ready=false; fi
+          echo "ready=${ready}" >> "$GITHUB_OUTPUT"
+          if [ "$ready" = "true" ] && [ "${WANT_E2E}" = "true" ]; then
+            echo "run_e2e=true" >> "$GITHUB_OUTPUT"
           else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "run_e2e=false" >> "$GITHUB_OUTPUT"
           fi
       - name: G15 preflight (stops the run when anything is missing)
         run: python -m scripts.staging.preflight --gate g15 --report preflight.json
@@ -145,8 +153,9 @@ jobs:
   vtp-dev-e2e:
     name: Viettel Post DEVELOPMENT E2E
     needs: preflight
-    # dispatch: input; push: vars.RUN_VTP_DEV_E2E == 'true'. Only when credentials + scenario exist.
-    if: ${{ needs.preflight.outputs.g08_ready == 'true' && (inputs.run_vtp_dev_e2e || (github.event_name == 'push' && vars.RUN_VTP_DEV_E2E == 'true')) }}
+    # Decided by the preflight job (credentials + scenario present, and requested). A
+    # job-level `if:` cannot read Environment variables, so it must not use vars.* (CR-STG-006).
+    if: ${{ needs.preflight.outputs.run_e2e == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: staging

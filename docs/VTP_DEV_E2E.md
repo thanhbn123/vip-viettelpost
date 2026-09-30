@@ -35,7 +35,7 @@ File JSON (`--evidence`, workflow đưa vào job summary): URL gốc, giờ bắ
 Mỗi yêu cầu ≤ `VTP_TIMEOUT_SECONDS` (20 s). Script **không** thử lại bước nào (kể cả chỉ-đọc) để bằng chứng phản ánh đúng một lần gọi; tạo/huỷ không bao giờ tự thử lại (D-023, D-031). Lỗi token → adapter làm mới **một lần** nếu dùng username/password.
 
 ## Chạy
-- Qua workflow `staging.yml`: đẩy `deploy/staging` tới một commit của `develop` với var `RUN_VTP_DEV_E2E=true` (thêm `VTP_E2E_CREATE_TEST_ORDER=yes` + `VTP_E2E_ALLOW_CREATE=yes` nếu đã duyệt tạo đơn thử); hoặc *Run workflow* khi file đã có trên `main` (chọn *Use workflow from: `develop`*). Credential lấy từ Environment `staging`, job cần người duyệt.
+- Qua workflow `staging.yml`: đẩy `deploy/staging` tới một commit của `develop` với var `RUN_VTP_DEV_E2E=true` (đặt ở Environment `staging`; job `preflight` — chạy trong Environment — quyết định `run_e2e`, vì `if:` cấp job không đọc được biến của Environment: CR-STG-006, run 36755351460 đã bị bỏ qua vì lỗi này) (thêm `VTP_E2E_CREATE_TEST_ORDER=yes` + `VTP_E2E_ALLOW_CREATE=yes` nếu đã duyệt tạo đơn thử); hoặc *Run workflow* khi file đã có trên `main` (chọn *Use workflow from: `develop`*). Credential lấy từ Environment `staging`, job cần người duyệt.
 - Tại máy tin cậy, **từ thư mục gốc repo**: nạp biến bằng `read` không vang (không để trong lịch sử shell), rồi `python -m scripts.vtp_dev_e2e [--create]` (chạy dạng module để `app` import được).
 
 ## Test
