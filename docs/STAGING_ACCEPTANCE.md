@@ -1,5 +1,7 @@
 # STAGING ACCEPTANCE — pipeline, bằng chứng và luật verdict (CR-STG-001)
 
+> **Cập nhật 2026-10-01:** đã có lần nghiệm thu **thật** đầu tiên — G15 **PASS** (mục *Lần nghiệm thu thật đầu tiên* cuối file). Dòng trạng thái ngay dưới là lịch sử 29/09.
+
 **Trạng thái (đo 2026-09-29 21:54 +07):** Environment `staging` có 0 secret, 0 variable; chưa có deploy method nào được cài → mọi lần chạy `staging.yml` dừng ở **preflight** với `STAGING_TARGET_MISSING`. **Chưa có staging thật nào được triển khai; chưa có bằng chứng staging nào.**
 
 ## Pipeline (`.github/workflows/staging.yml`)
@@ -51,3 +53,17 @@ Job có `timeout-minutes` (verify 20, preflight 5, image 20, e2e 10, deploy 45);
 | HTTPS | bắt buộc ở staging (preflight + acceptance từ chối `http://`) |
 
 Chưa làm: đăng ký webhook với Viettel Post và gọi thật từ Internet — cần staging host (G15).
+
+## Lần nghiệm thu thật đầu tiên — 2026-10-01
+
+| Mục | Giá trị |
+|---|---|
+| Run | `Staging` 36750924951, event `push` nhánh `deploy/staging`, attempt 1, duyệt Environment `staging` 2 lần (chủ dự án) |
+| SHA | `a6cadf72d34383dc4f0a14c445e8d13a2de9c15b` = HEAD `develop` lúc chạy (`compare` = identical) |
+| URL | https://cpn.viporder.vn (Let's Encrypt, hết hạn 29/12/2026) — VPS staging riêng, method `vps` |
+| Deploy | env file lưu; ảnh `vip-shipping-gateway:staging-a6cadf7…` nạp + kiểm `APP_GIT_SHA`; dump trước migration; PostgreSQL 160015; migration → `shp_0004_shipments_created_index (head)`; `STARTED a6cadf7 (previous none)` |
+| Acceptance (`acceptance-evidence-a6cadf72…`) | `health` 200 · `readiness` 200 không kiểm con nào hỏng · `deployed_sha` = SHA · `migration_head` · `smoke` 9/9 · webhook sai TOKEN → 401 · body hỏng → 400 · idempotency (200 ACCEPTED, 200 DUPLICATE) · 15 phản hồi không chứa secret · 27 dòng log sạch → **`g15=PASS`, `g08=BLOCKED_EXTERNAL_CREDENTIAL`, `verdict=ACCEPTED`** (do `acceptance.py` tính, không sửa tay) |
+| Đo trực tiếp trên VPS | app → `vip-staging-pg:5432/vip_staging` (PostgreSQL 16.15, container riêng, không mở cổng); `APP_ENV=staging`; `VTP_BASE_URL=https://partnerdev.viettelpost.vn`; CSDL có 1 sự kiện webhook thử `IGNORED` (do kiểm idempotency, mỗi lần acceptance thêm 1 dòng) |
+| Verifier độc lập | **STAGING ACCEPTANCE: PASS** (phạm vi G15) |
+
+**Giới hạn (ghi rõ, không suy rộng):** kiểm tra `no_secret_in_responses`/`log_redaction` chỉ trong 15 phản hồi và 27 dòng log với các biến trong `ACCEPT_SCAN_VARS`; `kind=staging` không tự ghi IP/host đã phân giải (xác nhận qua DNS + đo trên VPS); credential VTP chỉ được kiểm **có mặt** (readiness), chưa gọi VTP (E2E bị bỏ qua); chưa có callback thật từ VTP; rollback và khôi phục từ dump chưa được chạy thật.
