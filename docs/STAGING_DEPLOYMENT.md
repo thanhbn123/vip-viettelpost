@@ -94,6 +94,9 @@ Chủ dự án chốt 2026-09-30: target staging = **một VPS Linux riêng** (k
 
 ### Chuẩn bị VPS (chủ dự án làm một lần)
 
+Runbook copy-chạy đầy đủ, tách lệnh MacBook / VPS, có script kiểm chỉ-đọc: **`VPS_STAGING_SETUP.md`** (CR-STG-004). Danh sách dưới đây là tóm tắt.
+
+
 1. VPS Linux riêng (giả định Ubuntu 22.04/24.04 hoặc Debian 12, x86_64 — ảnh dựng trên runner `ubuntu-latest` amd64). **Không** dùng chung máy production.
 2. Docker Engine (có `docker load`, `docker run`), `curl`, `bash`, `base64` (coreutils).
 3. User deploy **không phải root**, thuộc nhóm `docker`, đăng nhập bằng khoá SSH (tạo cặp khoá riêng cho staging; khoá riêng → secret, khoá công khai → `~/.ssh/authorized_keys` của user này).
