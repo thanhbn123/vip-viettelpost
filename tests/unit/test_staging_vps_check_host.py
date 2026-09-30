@@ -30,7 +30,11 @@ exit 0
 """
 
 FAKE_CURL = r"""#!/bin/bash
-[ -n "${FAKE_TLS_FAIL:-}" ] && exit 60
+echo "curl $*" >> "$FAKE_LOG"
+case "$*" in
+  *--resolve*) [ -n "${FAKE_LOCAL_TLS_FAIL:-}" ] && exit 60;;
+  *) [ -n "${FAKE_TLS_FAIL:-}" ] && exit 6;;
+esac
 printf '502'
 """
 
@@ -82,7 +86,8 @@ def test_ready_host_passes(host):
         ({"FAKE_PG_DOWN": "1"}, "is not running"),
         ({"FAKE_PG_VER": "15.8"}, "is not version 16"),
         ({"FAKE_PG_NETS": "bridge"}, "not attached to network vip-staging"),
-        ({"FAKE_TLS_FAIL": "1"}, "certificate invalid"),
+        ({"FAKE_TLS_FAIL": "1"}, "not reachable via public DNS"),
+        ({"FAKE_LOCAL_TLS_FAIL": "1"}, "this host does not serve valid HTTPS"),
     ],
 )
 def test_each_missing_prerequisite_fails(host, env, expect):
@@ -103,14 +108,15 @@ def test_marker_and_app_dir_are_checked(host):
 
 def test_http_base_url_is_refused(host):
     r = host(str(host.app), "vip-staging", "vip-staging-pg", "http://stg.example.test")
-    assert r.returncode == 1 and "must start with https://" in r.stdout
+    assert r.returncode == 1 and "must be https://<hostname>" in r.stdout
 
 
 def test_check_is_read_only(host):
     host(str(host.app), *FULL)
     calls = host.log.read_text().split("\n")
     verbs = {c.split(" ")[0] for c in calls if c}
-    assert verbs <= {"info", "network", "inspect", "exec"}
+    assert verbs <= {"info", "network", "inspect", "exec", "curl"}
+    assert "--resolve stg.example.test:443:127.0.0.1" in host.log.read_text()
     assert not any(c.startswith(("run", "rm", "stop", "start", "pull", "load")) for c in calls)
     assert sorted(p.name for p in host.app.iterdir()) == ["STAGING_TARGET"]
 
@@ -139,13 +145,17 @@ def runbook_blocks():
 def test_runbook_blocks_parse_in_the_right_shell():
     blocks = runbook_blocks()
     assert {s for s, _ in blocks} >= {"A", "B", "C"}
+    checked = {"zsh": 0, "bash": 0}
     for section, cmd in blocks:
-        # A/C run on the MacBook (zsh); B runs on the VPS (bash).
+        # A/C run on the MacBook (zsh); B runs on the VPS (bash). CI has no zsh: the
+        # bash blocks are still checked there, the zsh ones only where zsh exists.
         shell = "zsh" if section in ("A", "C") else "bash"
         if shutil.which(shell) is None:
-            pytest.skip(f"{shell} not installed")
+            continue
         r = subprocess.run([shell, "-n"], input=cmd, capture_output=True, text=True)
         assert r.returncode == 0, (section, cmd, r.stderr)
+        checked[shell] += 1
+    assert checked["bash"] >= 8
 
 
 def test_runbook_has_no_literal_placeholders_to_paste():
@@ -171,5 +181,10 @@ def test_runbook_names_match_code():
         assert f"`{name}`" in text or f" {name} " in text, name
     # every variable the runbook sets is one the staging workflow actually reads
     workflow = (ROOT / ".github" / "workflows" / "staging.yml").read_text()
-    for name in re.findall(r"gh variable set ([A-Z_]+)", text):
+    variables = re.findall(r"gh variable set ([A-Z_]+)", text)
+    secrets = re.findall(r"gh secret set ([A-Z_]+)", text)
+    assert len(variables) >= 6 and len(secrets) >= 10
+    for name in variables:
         assert f"vars.{name}" in workflow, name
+    for name in secrets:
+        assert f"secrets.{name}" in workflow, name

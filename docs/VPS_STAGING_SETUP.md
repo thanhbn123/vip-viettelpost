@@ -18,7 +18,7 @@ Kiến trúc đích (theo `STAGING_DEPLOYMENT.md` → *Method `vps`*): VPS Linux
 **A1. Nhập thông tin một lần** (lưu vào `~/.vip-staging-vps`, không phải secret):
 
 ```bash
-printf 'IP hoặc tên máy VPS STAGING: '; read VPS_HOST; printf 'User quản trị có sudo trên VPS: '; read VPS_ADMIN; printf 'Cổng SSH (Enter = 22): '; read VPS_PORT; printf 'Tên miền staging (đã trỏ A về VPS): '; read STG_DOMAIN; printf 'VPS_HOST=%s\nVPS_ADMIN=%s\nVPS_PORT=%s\nSTG_DOMAIN=%s\n' "$VPS_HOST" "$VPS_ADMIN" "${VPS_PORT:-22}" "$STG_DOMAIN" > ~/.vip-staging-vps && cat ~/.vip-staging-vps
+printf 'IP hoặc tên máy VPS STAGING: '; read VPS_HOST; printf 'User quản trị có sudo trên VPS: '; read VPS_ADMIN; printf 'Cổng SSH (Enter = 22): '; read VPS_PORT; printf 'Tên miền staging (đã trỏ A về VPS, không cần https://): '; read STG_DOMAIN; STG_DOMAIN=${STG_DOMAIN#https://}; STG_DOMAIN=${STG_DOMAIN#http://}; STG_DOMAIN=${STG_DOMAIN%%/*}; printf 'VPS_HOST=%q\nVPS_ADMIN=%q\nVPS_PORT=%q\nSTG_DOMAIN=%q\n' "$VPS_HOST" "$VPS_ADMIN" "${VPS_PORT:-22}" "$STG_DOMAIN" > ~/.vip-staging-vps && cat ~/.vip-staging-vps
 ```
 
 **A2. Tạo cặp khoá SSH riêng cho deploy** (khoá riêng ở lại MacBook, sau này đưa thẳng vào GitHub):
@@ -44,10 +44,10 @@ source ~/.vip-staging-vps && ssh -p "$VPS_PORT" "$VPS_ADMIN@$VPS_HOST"
 **B1. Xác minh đúng máy — dừng ngay nếu đây không phải VPS staging mới:**
 
 ```bash
-hostnamectl | head -n 8; . /etc/os-release; echo "OS: $PRETTY_NAME"; ip -brief -4 addr | grep -v '^lo'; echo "--- container đang chạy:"; sudo docker ps --format '{{.Names}}  {{.Image}}' 2>/dev/null || echo "(chưa có Docker)"
+hostnamectl | head -n 8; . /etc/os-release; echo "OS: $PRETTY_NAME"; ip -brief -4 addr | grep -v '^lo'; echo "--- cổng đang lắng nghe:"; sudo ss -tlnpH | awk '{print $4, $6}'; echo "--- container đang chạy:"; sudo docker ps --format '{{.Names}}  {{.Image}}' 2>/dev/null || echo "(chưa có Docker)"
 ```
 
-Máy staging mới thì chưa có container nào (hoặc chỉ có `vip-staging-*` nếu chạy lại). Thấy dịch vụ production → **dừng, thoát ra**.
+Máy staging **mới** chỉ có `sshd` (và có thể `systemd-resolve` trên `127.0.0.53`) đang lắng nghe, không có container nào. Nếu chạy lại runbook thì thêm được `vip-staging-*`, `caddy` (80/443), `docker-proxy` (`127.0.0.1:8000`). **Thấy bất kỳ dịch vụ nào khác** (nginx, apache, postgres, mysql, node, python, container lạ…) → **DỪNG, gõ `exit`** — có thể đang ở nhầm máy; các bước sau (nhất là tường lửa B5) có thể làm gián đoạn dịch vụ đó.
 
 **B2. Cài gói:**
 
@@ -66,13 +66,13 @@ Nhóm `docker` gần tương đương quyền root **trên máy này** — chấ
 **B4. Thư mục ứng dụng + marker staging:**
 
 ```bash
-sudo install -d -m 750 -o deploy -g deploy /srv/vip-staging && sudo -u deploy sh -c "printf 'vip-viettelpost staging\n' > /srv/vip-staging/STAGING_TARGET" && ls -l /srv/vip-staging && cat /srv/vip-staging/STAGING_TARGET
+sudo install -d -m 750 -o deploy -g deploy /srv/vip-staging && sudo -u deploy sh -c "printf 'vip-viettelpost staging\n' > /srv/vip-staging/STAGING_TARGET" && sudo ls -l /srv/vip-staging && sudo cat /srv/vip-staging/STAGING_TARGET
 ```
 
-**B5. Tường lửa — chỉ SSH, 80, 443:**
+**B5. Tường lửa — chỉ SSH, 80, 443** (mở cả cổng SSH đang dùng lẫn cổng trong cấu hình `sshd`, để không tự khoá mình ra ngoài):
 
 ```bash
-SSH_PORT=$(sudo sshd -T 2>/dev/null | awk '/^port /{print $2; exit}'); sudo ufw allow "${SSH_PORT:-22}/tcp" && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw --force enable && sudo ufw status
+CUR_PORT=${SSH_CONNECTION##* }; CFG_PORTS=$(sudo sshd -T 2>/dev/null | awk '/^port /{print $2}'); if [ -z "$CUR_PORT$CFG_PORTS" ]; then echo "KHÔNG xác định được cổng SSH - DỪNG, không bật tường lửa"; else for p in $CUR_PORT $CFG_PORTS; do sudo ufw allow "$p/tcp"; done; sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw --force enable && sudo ufw status; fi
 ```
 
 **B6. PostgreSQL 16 riêng cho staging** (container, mật khẩu sinh ngẫu nhiên trong file quyền 600, không in ra):
@@ -94,10 +94,10 @@ Trước lần deploy đầu, `HTTPS 502` là **đúng** (chứng chỉ đã có
 **B8. Kiểm tổng bằng script chỉ-đọc của repo + in vân tay host key:**
 
 ```bash
-curl -fsSL -o /tmp/check-host.sh https://raw.githubusercontent.com/thanhbn123/vip-viettelpost/develop/scripts/staging/vps/check-host.sh && sudo -u deploy bash /tmp/check-host.sh /srv/vip-staging vip-staging vip-staging-pg "https://$STG_DOMAIN"; echo "--- vân tay host key:"; ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+[ -n "${STG_DOMAIN:-}" ] || read -r -p 'Tên miền staging: ' STG_DOMAIN; curl -fsSL -o /tmp/check-host.sh https://raw.githubusercontent.com/thanhbn123/vip-viettelpost/develop/scripts/staging/vps/check-host.sh && sudo -u deploy bash /tmp/check-host.sh /srv/vip-staging vip-staging vip-staging-pg "https://$STG_DOMAIN"; echo "--- vân tay host key:"; ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
 ```
 
-Phải thấy `RESULT: READY for deploy method vps`. Ghi lại dòng vân tay `SHA256:…` để so ở bước C1. Xong thì gõ `exit` để về MacBook.
+Phải thấy `RESULT: READY for deploy method vps`. (Muốn cố định phiên bản script, thay `develop` trong URL bằng một SHA commit cụ thể của `develop`.) Ghi lại dòng vân tay `SHA256:…` để so ở bước C1. Xong thì gõ `exit` để về MacBook.
 
 ## C. LỆNH CHẠY TRÊN MACBOOK (zsh) — nối GitHub với VPS
 
@@ -107,7 +107,7 @@ Phải thấy `RESULT: READY for deploy method vps`. Ghi lại dòng vân tay `S
 source ~/.vip-staging-vps && ssh-keyscan -p "$VPS_PORT" -t ed25519 "$VPS_HOST" 2>/dev/null > ~/.ssh/vip_viettelpost_staging_known_hosts && ssh-keygen -lf ~/.ssh/vip_viettelpost_staging_known_hosts
 ```
 
-Vân tay in ra phải **trùng** dòng `SHA256:…` ở B8. Không trùng → **dừng** (có thể không phải máy của anh). Trùng thì:
+Vân tay in ra phải **trùng** dòng `SHA256:…` ở B8. Không trùng → **dừng** (có thể không phải máy của anh). B8 được đọc qua chính phiên SSH đã tin host key lần đầu ở A3/A4; muốn chắc tuyệt đối thì đối chiếu thêm với vân tay trên **bảng điều khiển/console web của nhà cung cấp VPS** (nếu có). Trùng thì:
 
 ```bash
 source ~/.vip-staging-vps && ssh -i ~/.ssh/vip_viettelpost_staging_deploy -p "$VPS_PORT" -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/vip_viettelpost_staging_known_hosts" "deploy@$VPS_HOST" 'id -un; hostname; cat /srv/vip-staging/STAGING_TARGET'
@@ -122,13 +122,19 @@ source ~/.vip-staging-vps && R=thanhbn123/vip-viettelpost && KH="$HOME/.ssh/vip_
 ```
 
 ```bash
-source ~/.vip-staging-vps && R=thanhbn123/vip-viettelpost && ssh -i ~/.ssh/vip_viettelpost_staging_deploy -p "$VPS_PORT" -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/vip_viettelpost_staging_known_hosts" "deploy@$VPS_HOST" '. /srv/vip-staging/pg.env && printf "postgresql+psycopg://%s" "$POSTGRES_USER:$POSTGRES_PASSWORD@vip-staging-pg:5432/$POSTGRES_DB"' | gh secret set DATABASE_URL --env staging --repo $R
+source ~/.vip-staging-vps && R=thanhbn123/vip-viettelpost && DBURL=$(ssh -i ~/.ssh/vip_viettelpost_staging_deploy -p "$VPS_PORT" -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/vip_viettelpost_staging_known_hosts" "deploy@$VPS_HOST" '. /srv/vip-staging/pg.env && printf "postgresql+psycopg://%s" "$POSTGRES_USER:$POSTGRES_PASSWORD@vip-staging-pg:5432/$POSTGRES_DB"') && [ -n "$DBURL" ] && printf %s "$DBURL" | gh secret set DATABASE_URL --env staging --repo $R; unset DBURL
 ```
 
 `WEBHOOK_SHARED_SECRET` — sinh ngẫu nhiên, đưa vào GitHub **và** vào clipboard (để dán vào trình quản lý mật khẩu; cần lại khi đăng ký webhook với Viettel Post dev):
 
 ```bash
-R=thanhbn123/vip-viettelpost && openssl rand -hex 32 | tee >(gh secret set WEBHOOK_SHARED_SECRET --env staging --repo $R) | pbcopy && echo "Đã chép vào clipboard — dán ngay vào trình quản lý mật khẩu"
+R=thanhbn123/vip-viettelpost && W=$(openssl rand -hex 32) && printf %s "$W" | gh secret set WEBHOOK_SHARED_SECRET --env staging --repo $R && printf %s "$W" | pbcopy && echo "Đã lưu vào GitHub và chép vào clipboard - dán ngay vào trình quản lý mật khẩu"; unset W
+```
+
+Dán xong thì xoá clipboard (clipboard có thể đồng bộ sang thiết bị Apple khác):
+
+```bash
+pbcopy < /dev/null
 ```
 
 `API_KEYS` + `SMOKE_API_KEY` — một key `smoke` cho bước acceptance (key thô vào `SMOKE_API_KEY`, băm SHA-256 vào `API_KEYS`):

@@ -93,15 +93,26 @@ else
 fi
 
 if [ -n "$base_url" ]; then
-  if [[ ! "$base_url" =~ ^https:// ]]; then
-    fail "base url must start with https://"
+  if [[ ! "$base_url" =~ ^https://([A-Za-z0-9.-]+)/?$ ]]; then
+    fail "base url must be https://<hostname> (no path)"
   else
-    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$base_url/health" 2>/dev/null)"
+    domain="${BASH_REMATCH[1]}"
+    # 1) THIS host serves a valid certificate for the domain (proxy running here).
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+      --resolve "${domain}:443:127.0.0.1" "https://${domain}/health" 2>/dev/null)"
     rc=$?
     if [ "$rc" = "0" ]; then
-      pass "HTTPS reachable with a valid certificate ($base_url/health -> HTTP $code; 502 is expected before the first deploy)"
+      pass "this host serves HTTPS for $domain with a valid certificate (HTTP $code; 502 before the first deploy)"
     else
-      fail "HTTPS not reachable or certificate invalid ($base_url, curl exit $rc)"
+      fail "this host does not serve valid HTTPS for $domain (reverse proxy not running or no certificate, curl exit $rc)"
+    fi
+    # 2) The public name reaches a server with a valid certificate (DNS + firewall).
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "https://${domain}/health" 2>/dev/null)"
+    rc=$?
+    if [ "$rc" = "0" ]; then
+      pass "https://$domain reachable from here via public DNS (HTTP $code)"
+    else
+      fail "https://$domain not reachable via public DNS (A record, ports 80/443?, curl exit $rc)"
     fi
   fi
 else
