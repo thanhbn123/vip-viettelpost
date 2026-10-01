@@ -45,6 +45,9 @@ from app.webhooks.viettel_post_payload import (
 
 VND = "VND"
 
+# ORDER_PAYMENT codes that do not collect the goods value (D-BIZ-001, docs/DECISIONS.md).
+NON_COLLECTING_ORDER_PAYMENTS = frozenset({1, 4})
+
 
 class ViettelPostRequestError(ProviderRequestError):
     """A core request cannot be expressed as a Viettel Post request (caller error)."""
@@ -197,6 +200,14 @@ class ViettelPostProvider(ShippingProvider):
         if options.order_payment is None:
             raise ViettelPostRequestError(
                 "create_shipment: provider_options.order_payment (1-4) is required"
+            )
+        # D-BIZ-001 (owner, 2026-10-02): COD -> 3, non-COD -> 1; a COD amount with a code that
+        # does not collect the goods value (1, 4) is refused before any call, so a COD order can
+        # never be sent with "no collection".
+        cod = request.cod_amount.amount if request.cod_amount is not None else 0
+        if cod > 0 and options.order_payment in NON_COLLECTING_ORDER_PAYMENTS:
+            raise ViettelPostRequestError(
+                "create_shipment: cod_amount > 0 requires order_payment 2 or 3 (D-BIZ-001)"
             )
         payload: dict[str, Any] = {
             **_route(options),
