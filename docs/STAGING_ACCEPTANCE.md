@@ -67,3 +67,15 @@ Chưa làm: đăng ký webhook với Viettel Post và gọi thật từ Internet
 | Verifier độc lập | **STAGING ACCEPTANCE: PASS** (phạm vi G15) |
 
 **Giới hạn (ghi rõ, không suy rộng):** kiểm tra `no_secret_in_responses`/`log_redaction` chỉ trong 15 phản hồi và 27 dòng log với các biến trong `ACCEPT_SCAN_VARS`; `kind=staging` không tự ghi IP/host đã phân giải (xác nhận qua DNS + đo trên VPS); credential VTP chỉ được kiểm **có mặt** (readiness), chưa gọi VTP (E2E bị bỏ qua); chưa có callback thật từ VTP; rollback và khôi phục từ dump chưa được chạy thật.
+
+## Lần nghiệm thu thật thứ hai — G08 + G15 — 2026-10-01
+
+| Mục | Giá trị |
+|---|---|
+| Run | `Staging` 36757608002 **attempt 4**, push `deploy/staging`, 3 cổng duyệt bởi chủ dự án |
+| SHA | `c6ee0d6f7edb103348ec71f83453e8fe56c69cd6` = HEAD `develop` |
+| VTP dev E2E (`vtp-evidence-c6ee0d6…`) | base `https://partnerdev.viettelpost.vn`; authenticate PASS (`VTP_TOKEN`); get_services PASS (8 dịch vụ); calculate_fee PASS (SCN, 44.717 VND); create_shipment NOT_SAFE; cancel SKIPPED |
+| Deploy | dump trước migration; PostgreSQL 160015; `shp_0004 (head)`; `STARTED c6ee0d6 (previous a6cadf7)` — lần đầu có bản trước để rollback (rollback chưa phải chạy) |
+| Acceptance (`acceptance-evidence-c6ee0d6…`) | 10/10 PASS → **`g15=PASS`, `g08=PASS`, `verdict=ACCEPTED`** |
+
+Lịch sử attempt 1–3: `authenticate FAIL` (`ViettelPostBusinessError`) với `VTP_USERNAME`/`VTP_PASSWORD`; kiểm tay trên partnerdev: `Username or password is not valid!`. G08 theo luật repo (`acceptance.py`) chỉ đòi 3 bước đọc trên partnerdev cùng SHA — **không** phụ thuộc D-BIZ-001; tạo đơn thật vẫn chờ D-BIZ-001.
