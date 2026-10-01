@@ -2,7 +2,7 @@
 
 Bộ nhớ trạng thái của dự án (không dựa vào hội thoại). Cập nhật sau mỗi gate. Giờ theo +07:00.
 
-**Cập nhật lần cuối:** 2026-10-01 — **G00–G15 PASS** (G08 = E2E Viettel Post development **chỉ đọc**; tạo đơn thật chưa chạy, chờ D-BIZ-001)
+**Cập nhật lần cuối:** 2026-10-01 — **G00–G15 PASS** (G08 = E2E Viettel Post development **chỉ đọc**; D-BIZ-001 đã quyết 2026-10-02, chờ VTP xác nhận nghĩa mã; tạo đơn thử dev chưa chạy)
 **`main`:** `3b89b367cf3bd57ac6021645ff15ae37958898f7` · **`develop`:** `8cd7d4bf8cedf626f364ac7df7efe5c0aeef8cf1` (sau merge PR #22; CI sau merge run 36539857970: lint, test 410 passed / 10 skipped, postgres 556 passed / 1 skipped, image — cả 4 success) · **`main`:** không đổi
 **Migration head:** `develop` = `shp_0004_shipments_created_index`
 
@@ -41,7 +41,7 @@ Chi tiết từng dòng và test chứng minh: `docs/INTEGRATION_NOTES.md`.
 | R-001 Không có credential Viettel Post **development** — **đã có `VTP_TOKEN` dev (2026-10-01)**; tài khoản Login/ownerconnect chưa hợp lệ trên partnerdev | G08 | Cấp tài khoản/token dev của VTP vào kho bí mật (GitHub Environment `staging`), không gửi qua chat |
 | R-008 Chưa có môi trường staging được cấp phép | G15 | Chỉ định máy/nền tảng staging + PostgreSQL 16 riêng + URL HTTPS cho webhook |
 
-Quyết định nghiệp vụ đang chờ (không chặn STAGING READY): R-002 múi giờ `ORDER_STATUSDATE` + R-003 mã 104 (hỏi VTP), R-005/R-011 nghĩa `ORDER_PAYMENT` và quy tắc kế toán COD, R-004 repo PUBLIC, R-012 quyền ghi đè trạng thái, R-014 chính sách lưu giữ dữ liệu cá nhân, R-015 rate limit / xoay vòng key.
+Quyết định nghiệp vụ đang chờ (không chặn STAGING READY): R-002 múi giờ `ORDER_STATUSDATE` + R-003 mã 104 (hỏi VTP), R-005 (đã quyết 2026-10-02, chờ VTP xác nhận nghĩa mã)/R-011 quy tắc kế toán COD, R-004 repo PUBLIC, R-012 quyền ghi đè trạng thái, R-014 chính sách lưu giữ dữ liệu cá nhân, R-015 rate limit / xoay vòng key.
 
 ## PR đã merge vào `develop` (CR-SHP-001)
 

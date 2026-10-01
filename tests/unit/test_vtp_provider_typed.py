@@ -317,13 +317,16 @@ def test_resolve_timezone():
 
 
 @pytest.mark.parametrize("code", [1, 4])
+@pytest.mark.parametrize("cod", ["562000", "1", "0.01"])
 @pytest.mark.asyncio
-async def test_cod_with_a_non_collecting_order_payment_is_refused_before_network(code):
+async def test_cod_with_a_non_collecting_order_payment_is_refused_before_network(code, cod):
     """D-BIZ-001: a COD order must never go out as 'no collection'."""
     provider, recorder = provider_with({})
     options = {**OPTIONS, "order_payment": code}
     with pytest.raises(ViettelPostRequestError, match="D-BIZ-001"):
-        await provider.create_shipment(create_request(provider_options=options))
+        await provider.create_shipment(
+            create_request(provider_options=options, cod_amount=Money(amount=Decimal(cod)))
+        )
     assert recorder.requests == []
 
 

@@ -167,7 +167,7 @@ Danh sách host/IP **production** để chặn nhầm (cách nhau bằng dấu p
 printf 'Host/IP PRODUCTION cần chặn: '; read PROD_DENY; gh variable set STAGING_HOST_DENYLIST --env staging --repo thanhbn123/vip-viettelpost --body "$PROD_DENY"
 ```
 
-`VTP_E2E_SCENARIO_JSON` chỉ đặt **sau khi** chốt D-BIZ-001 (mẫu: `scripts/vtp_dev_e2e.scenario.example.json`).
+`VTP_E2E_SCENARIO_JSON` (mẫu: `scripts/vtp_dev_e2e.scenario.example.json`): bước chỉ đọc không cần `order_payment`; tạo đơn thử dùng mã theo D-BIZ-001 (không COD → 1).
 
 **C4. Kiểm lại — chỉ tên secret, không có giá trị:**
 
