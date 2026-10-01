@@ -182,7 +182,7 @@ async def test_create_shipment_items_from_options():
         "order_payment": 1,
         "items": [{"name": "SP", "quantity": 2, "price_vnd": 1000, "weight_grams": 50}],
     }
-    await provider.create_shipment(create_request(provider_options=options))
+    await provider.create_shipment(create_request(provider_options=options, cod_amount=None))
     (body,) = recorder.bodies(mapping.CREATE_ORDER_PATH)
     assert body["LIST_ITEM"] == [
         {"PRODUCT_NAME": "SP", "PRODUCT_QUANTITY": 2, "PRODUCT_PRICE": 1000, "PRODUCT_WEIGHT": 50}
@@ -314,3 +314,30 @@ def test_resolve_timezone():
     assert resolve_timezone("") is None
     with pytest.raises(ValueError):
         resolve_timezone("Mars/Base")
+
+
+@pytest.mark.parametrize("code", [1, 4])
+@pytest.mark.parametrize("cod", ["562000", "1", "0.01"])
+@pytest.mark.asyncio
+async def test_cod_with_a_non_collecting_order_payment_is_refused_before_network(code, cod):
+    """D-BIZ-001: a COD order must never go out as 'no collection'."""
+    provider, recorder = provider_with({})
+    options = {**OPTIONS, "order_payment": code}
+    with pytest.raises(ViettelPostRequestError, match="D-BIZ-001"):
+        await provider.create_shipment(
+            create_request(provider_options=options, cod_amount=Money(amount=Decimal(cod)))
+        )
+    assert recorder.requests == []
+
+
+@pytest.mark.parametrize(
+    "code,cod",
+    [(3, Money(amount=562000)), (2, Money(amount=562000)), (1, None), (1, Money(amount=0))],
+)
+@pytest.mark.asyncio
+async def test_decided_and_consistent_order_payments_are_sent(code, cod):
+    provider, recorder = provider_with({mapping.CREATE_ORDER_PATH: respond(CREATE_SAMPLE)})
+    options = {**OPTIONS, "order_payment": code}
+    await provider.create_shipment(create_request(provider_options=options, cod_amount=cod))
+    (body,) = recorder.bodies(mapping.CREATE_ORDER_PATH)
+    assert body["ORDER_PAYMENT"] == code

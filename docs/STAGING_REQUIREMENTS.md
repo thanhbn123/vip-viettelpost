@@ -48,7 +48,7 @@ OPTIONAL: `VTP_BASE_URL` (nếu đặt phải là URL dev), `VTP_TIMEOUT_SECONDS
 ## 11. Credential Viettel Post DEVELOPMENT
 - Tài khoản Partner trên **partnerdev.viettelpost.vn** (không phải production): `VTP_USERNAME` + `VTP_PASSWORD`, **hoặc** token dài hạn `VTP_TOKEN`.
 - Danh sách ID tỉnh/xã (và huyện nếu có) của 2 địa chỉ **thử** để điền `VTP_E2E_SCENARIO_JSON` (R-006: app chưa tra tên → ID).
-- Xác nhận VTP cho phép tạo đơn thử trên dev và cách huỷ; quyết định `order_payment` (D-BIZ-001) trước khi tạo đơn.
+- Xác nhận VTP cho phép tạo đơn thử trên dev và cách huỷ; quyết định `order_payment` (D-BIZ-001) trước khi tạo đơn — **đã quyết 2026-10-02** (COD → 3, không COD → 1).
 - Chi tiết: `VTP_DEV_E2E.md`.
 
 ## 12. Owner actions

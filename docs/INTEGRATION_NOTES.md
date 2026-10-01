@@ -66,7 +66,7 @@ Verifier chạy trên bản clone riêng; đo lại 287 passed (SQLite) và 344 
 | 1 | HIGH | Hai lần retry đồng thời của sự kiện `FAILED` đều được áp; `attempt_count` mất một lần đếm (tái hiện trên PG) | D-020: claim lại bằng UPDATE có điều kiện |
 | 2 | HIGH | `_record_failure` ghi đè `FAILED` lên lần giao trùng đã lưu thành công → retry áp lại (tái hiện trên PG) | D-020: UPDATE có điều kiện, không hạ `RECEIVED`/`PROCESSED` |
 | 3 | MEDIUM | SQLite: batch migration làm rỗng `shipment_events.webhook_event_id` | D-021 |
-| 4 | MEDIUM | COD không đối chiếu với `ORDER_PAYMENT` | Để nguyên, ghi vào R-005: nghĩa của 1–4 chưa được xác minh với tài liệu, không tự đặt luật |
+| 4 | MEDIUM | COD không đối chiếu với `ORDER_PAYMENT` | Thời điểm đó để nguyên (R-005). **Cập nhật 2026-10-02:** chủ dự án quyết D-BIZ-001 → `create_shipment` từ chối COD > 0 kèm mã 1/4 (issue #48) |
 | 5 | LOW | Route tạm trả 500 với lỗi yêu cầu VTP | Trả 422 (`ViettelPostRequestError`, `MixedCurrencyError`) |
 | 5 | LOW | Dòng sự kiện không canonical, không `provider_status` hợp lệ ở CSDL nhưng hỏng ở domain | Repository từ chối ghi dòng như vậy |
 | 5 | LOW | Phí lúc tạo đơn vào `estimated_fee`, `actual_fee` chưa bao giờ được ghi | Có chủ đích (D-009); `actual_fee` thuộc G10 |
