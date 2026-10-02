@@ -375,3 +375,44 @@ def test_real_e2e_script_evidence_is_accepted_for_g08(deployed, tmp_path):
         vtp_evidence=json.loads(evidence.read_text()),
     )
     assert ev.g08 == "FAIL"  # evidence not bound to this SHA
+
+
+def test_login_mode_script_evidence_gives_g08_pass(deployed, tmp_path):
+    """CR-STG-007: a username/password run (Login + ownerconnect over the network) records
+    auth_mode=login and is accepted without create; a rejected login is FAIL."""
+    import httpx
+
+    from app.providers.viettel_post.auth import LOGIN_PATH, OWNER_CONNECT_PATH
+    from scripts import vtp_dev_e2e
+    from tests.unit.test_vtp_auth import login_ok, owner_ok
+    from tests.unit.test_vtp_dev_e2e_script import ROUTES, SCENARIO
+    from tests.unit.vtp_fakes import Recorder, rejected, respond
+
+    scenario = tmp_path / "scenario.json"
+    scenario.write_text(json.dumps(SCENARIO))
+    evidence = tmp_path / "vtp-evidence.json"
+    env = {
+        "VTP_BASE_URL": "https://partnerdev.viettelpost.vn",
+        "VTP_USERNAME": "fake-test-user",
+        "VTP_PASSWORD": "fake-test-pass",
+        "VTP_E2E_SCENARIO": str(scenario),
+        "VTP_E2E_SHA": SHA,
+    }
+    routes = {**ROUTES, LOGIN_PATH: login_ok(), OWNER_CONNECT_PATH: owner_ok()}
+    recorder = Recorder(routes)
+    assert (
+        vtp_dev_e2e.main(
+            ["--evidence", str(evidence)], env=env, transport=httpx.MockTransport(recorder)
+        )
+        == 0
+    )
+    real = json.loads(evidence.read_text())
+    assert real["auth_mode"] == "login"
+    assert [r.url.path for r in recorder.requests][:2] == [LOGIN_PATH, OWNER_CONNECT_PATH]
+    assert _g08(deployed, real) == "PASS"
+
+    bad = {**routes, LOGIN_PATH: respond(rejected("Invalid owner account or password!"))}
+    vtp_dev_e2e.main(
+        ["--evidence", str(evidence)], env=env, transport=httpx.MockTransport(Recorder(bad))
+    )
+    assert _g08(deployed, json.loads(evidence.read_text())) == "FAIL"
