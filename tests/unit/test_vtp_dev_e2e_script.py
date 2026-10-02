@@ -3,6 +3,7 @@
 import json
 
 import httpx
+import pytest
 
 from app.core.config import VTP_DEV_BASE_URL, VTP_PRODUCTION_BASE_URL
 from app.providers.viettel_post import mapping
@@ -247,6 +248,35 @@ def test_cancel_auth_error_is_not_retried(tmp_path):
     from tests.unit.vtp_fakes import rejected
 
     routes = {**ROUTES, mapping.UPDATE_ORDER_STATUS_PATH: respond(rejected("Token invalid"))}
+    environ = env(tmp_path, VTP_E2E_ALLOW_CREATE="yes", VTP_E2E_CANCEL_WAIT_SECONDS="0")
+    recorder = Recorder(routes)
+    code, _ = run(tmp_path, ["--create"], environ, recorder)
+    assert code == e2e.EXIT_FAIL
+    assert [r.url.path for r in recorder.requests].count(mapping.UPDATE_ORDER_STATUS_PATH) == 1
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"VTP_E2E_CANCEL_RETRIES": "0"},
+        {"VTP_E2E_CANCEL_RETRIES": "-1"},
+        {"VTP_E2E_CANCEL_RETRIES": "abc"},
+        {"VTP_E2E_CANCEL_WAIT_SECONDS": "x"},
+        {"VTP_E2E_CANCEL_WAIT_SECONDS": "999"},
+    ],
+)
+def test_bad_cancel_settings_refused_before_any_order_is_created(tmp_path, extra):
+    """Verifier PR #53: a bad retry value used to surface only after create succeeded."""
+    recorder = Recorder(ROUTES)
+    code, _ = run(
+        tmp_path, ["--create"], env(tmp_path, VTP_E2E_ALLOW_CREATE="yes", **extra), recorder
+    )
+    assert code == e2e.EXIT_REFUSED and recorder.requests == []
+
+
+def test_cancel_server_error_is_not_retried(tmp_path):
+    """Only business refusals are retried; HTTP errors fail at once."""
+    routes = {**ROUTES, mapping.UPDATE_ORDER_STATUS_PATH: respond({"message": "down"}, 503)}
     environ = env(tmp_path, VTP_E2E_ALLOW_CREATE="yes", VTP_E2E_CANCEL_WAIT_SECONDS="0")
     recorder = Recorder(routes)
     code, _ = run(tmp_path, ["--create"], environ, recorder)

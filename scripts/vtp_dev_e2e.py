@@ -115,6 +115,20 @@ def build_provider(env: dict[str, str], transport=None) -> ViettelPostProvider:
     return ViettelPostProvider(client, auth)
 
 
+def _cancel_settings(env: dict[str, str]) -> tuple[int, float]:
+    """Validated cancel retry settings: 1-10 attempts, 0-60 s wait."""
+    try:
+        retries = int(env.get("VTP_E2E_CANCEL_RETRIES") or 3)
+        wait = float(env.get("VTP_E2E_CANCEL_WAIT_SECONDS") or 5)
+    except ValueError:
+        raise ValueError(
+            "VTP_E2E_CANCEL_RETRIES / VTP_E2E_CANCEL_WAIT_SECONDS must be numbers"
+        ) from None
+    if not 1 <= retries <= 10 or not 0 <= wait <= 60:
+        raise ValueError("VTP_E2E_CANCEL_RETRIES must be 1-10, WAIT_SECONDS 0-60")
+    return retries, wait
+
+
 def _error_text(exc: Exception, hidden: list[str]) -> str:
     """Class name plus the provider's message (CR-STG-008: run 36976623849 kept only the
     class, so the cancel failure could not be diagnosed). Credentials are masked."""
@@ -247,8 +261,7 @@ async def run(
             report.steps.append(Step("cancel_shipment", "SKIPPED", error="create failed"))
             return report
 
-        retries = int(env.get("VTP_E2E_CANCEL_RETRIES") or 3)
-        wait = float(env.get("VTP_E2E_CANCEL_WAIT_SECONDS") or 5)
+        retries, wait = _cancel_settings(env)
 
         async def cancel():
             # A cancel right after create was refused once while the same request with a NOTE
@@ -270,7 +283,7 @@ async def run(
                     "cancelled": result.cancelled,
                     "attempts": attempt,
                 }
-            raise last  # pragma: no cover - loop always returns or raises
+            raise AssertionError("unreachable: retries >= 1 is validated") from last
 
         await _timed(report, "cancel_shipment", cancel, hidden)
         return report
@@ -301,6 +314,18 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None, trans
     except ValueError:
         print("REFUSED: VTP_TIMEOUT_SECONDS is not a number")
         return EXIT_REFUSED
+    # Checked BEFORE anything is created: a bad value must never leave a test order alive
+    # without a cancel attempt (verifier PR #53).
+    try:
+        cancel_retries, cancel_wait = _cancel_settings(env)
+    except ValueError as exc:
+        print(f"REFUSED: {exc}")
+        return EXIT_REFUSED
+    env = {
+        **env,
+        "VTP_E2E_CANCEL_RETRIES": str(cancel_retries),
+        "VTP_E2E_CANCEL_WAIT_SECONDS": str(cancel_wait),
+    }
     try:
         scenario = load_scenario(env.get("VTP_E2E_SCENARIO"))
     except (OSError, ValueError) as exc:
