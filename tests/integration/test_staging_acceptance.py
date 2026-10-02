@@ -115,6 +115,7 @@ def test_g08_needs_real_dev_evidence(deployed):
     good = {
         "base_url": "https://partnerdev.viettelpost.vn",
         "sha": SHA,
+        "auth_mode": "login",  # Login + ownerconnect: Viettel Post itself checked it
         "steps": [
             {"name": n, "status": "PASS"} for n in ("authenticate", "get_services", "calculate_fee")
         ],
@@ -138,6 +139,40 @@ def test_g08_needs_real_dev_evidence(deployed):
         vtp_evidence=mocked,
     )
     assert ev.g08 == "FAIL"
+
+
+def _g08(deployed, evidence):
+    return acceptance.run(
+        deployed,
+        ENV,
+        kind="staging",
+        expected_sha=SHA,
+        logs=lambda: f"ok {deployed.headers['X-Request-ID']}\n",
+        vtp_evidence=evidence,
+    ).g08
+
+
+def test_g08_static_token_with_reads_only_is_not_verified(deployed):
+    """CR-STG-007: a FAKE static token passed authenticate/services/fee on partnerdev (the
+    read endpoints do not check it), so reads alone must not give G08 PASS."""
+    reads = [
+        {"name": n, "status": "PASS"} for n in ("authenticate", "get_services", "calculate_fee")
+    ]
+    base = {"base_url": "https://partnerdev.viettelpost.vn", "sha": SHA, "steps": reads}
+    assert _g08(deployed, {**base, "auth_mode": "static_token"}) == "CREDENTIAL_NOT_VERIFIED"
+    assert _g08(deployed, base) == "CREDENTIAL_NOT_VERIFIED"  # old evidence: no auth_mode
+    created = reads + [
+        {"name": "create_shipment", "status": "PASS"},
+        {"name": "cancel_shipment", "status": "PASS"},
+    ]
+    assert _g08(deployed, {**base, "auth_mode": "static_token", "steps": created}) == "PASS"
+    half = reads + [
+        {"name": "create_shipment", "status": "PASS"},
+        {"name": "cancel_shipment", "status": "FAIL"},
+    ]
+    assert _g08(deployed, {**base, "auth_mode": "static_token", "steps": half}) == "FAIL"
+    login_failed = [{"name": "authenticate", "status": "FAIL"}]
+    assert _g08(deployed, {**base, "auth_mode": "login", "steps": login_failed}) == "FAIL"
 
 
 def test_cli_refuses_http_for_staging_and_bad_sha(tmp_path):
@@ -301,7 +336,7 @@ def test_real_e2e_script_evidence_is_accepted_for_g08(deployed, tmp_path):
     )
     assert code == 0
     real = json.loads(evidence.read_text())
-    assert real["sha"] == SHA
+    assert real["sha"] == SHA and real["auth_mode"] == "static_token"
     ev = acceptance.run(
         deployed,
         ENV,
@@ -309,6 +344,21 @@ def test_real_e2e_script_evidence_is_accepted_for_g08(deployed, tmp_path):
         expected_sha=SHA,
         logs=lambda: deployed.headers["X-Request-ID"],
         vtp_evidence=real,
+    )
+    assert ev.g08 == "CREDENTIAL_NOT_VERIFIED"  # CR-STG-007: reads do not prove the token
+    code = vtp_dev_e2e.main(
+        ["--create", "--evidence", str(evidence)],
+        env={**env, "VTP_E2E_ALLOW_CREATE": "yes"},
+        transport=httpx.MockTransport(Recorder(ROUTES)),
+    )
+    assert code == 0
+    ev = acceptance.run(
+        deployed,
+        ENV,
+        kind="staging",
+        expected_sha=SHA,
+        logs=lambda: deployed.headers["X-Request-ID"],
+        vtp_evidence=json.loads(evidence.read_text()),
     )
     assert ev.g08 == "PASS"
 

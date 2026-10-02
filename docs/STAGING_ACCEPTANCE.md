@@ -79,3 +79,5 @@ Chưa làm: đăng ký webhook với Viettel Post và gọi thật từ Internet
 | Acceptance (`acceptance-evidence-c6ee0d6…`) | 10/10 PASS → **`g15=PASS`, `g08=PASS`, `verdict=ACCEPTED`** |
 
 Lịch sử attempt 1–3: `authenticate FAIL` (`ViettelPostBusinessError`) với `VTP_USERNAME`/`VTP_PASSWORD`; kiểm tay trên partnerdev: `Username or password is not valid!`. G08 theo luật repo (`acceptance.py`) chỉ đòi 3 bước đọc trên partnerdev cùng SHA — **không** phụ thuộc D-BIZ-001; tạo đơn thật vẫn chờ D-BIZ-001.
+
+> **Đính chính 2026-10-02 (CR-STG-007):** `g08=PASS` của lần nghiệm thu thứ hai là **dương tính giả** — token giả cũng làm 3 bước đọc PASS. Lần tạo đơn (run 36900122982) cho `ViettelPostAuthError`. G08 hiện **BLOCKED_EXTERNAL_CREDENTIAL**; G15 PASS không đổi. Luật verdict G08 mới: đọc PASS **và** credential được VTP chấp nhận (Login, hoặc tạo + huỷ), nếu không → `CREDENTIAL_NOT_VERIFIED`.
