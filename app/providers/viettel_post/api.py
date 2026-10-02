@@ -70,8 +70,8 @@ class ViettelPostApi:
         )
         return mapping.parse_create_order_response(envelope)
 
-    async def cancel_order(self, tracking_number: str) -> dict[str, Any]:
-        body = mapping.build_cancel_request(tracking_number)
+    async def cancel_order(self, tracking_number: str, note: str | None = None) -> dict[str, Any]:
+        body = mapping.build_cancel_request(tracking_number, note)
         envelope = await self._with_token(
             lambda token: self.client.request_envelope(
                 "POST", mapping.UPDATE_ORDER_STATUS_PATH, token=token, json=body

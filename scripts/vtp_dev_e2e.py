@@ -34,6 +34,11 @@ from app.domain.models import Address, Money, ShipmentPackage
 from app.providers.base.dto import CreateShipmentRequest, FeeRequest, ServiceQuery
 from app.providers.viettel_post.auth import ViettelPostAuth
 from app.providers.viettel_post.client import ViettelPostClient
+from app.providers.viettel_post.errors import (
+    ViettelPostAuthError,
+    ViettelPostBusinessError,
+    redact,
+)
 from app.providers.viettel_post.provider import ViettelPostProvider
 
 EXIT_OK, EXIT_FAIL, EXIT_REFUSED, EXIT_BLOCKED = 0, 1, 2, 3
@@ -110,7 +115,14 @@ def build_provider(env: dict[str, str], transport=None) -> ViettelPostProvider:
     return ViettelPostProvider(client, auth)
 
 
-async def _timed(report: Report, name: str, coro_factory) -> Any:
+def _error_text(exc: Exception, hidden: list[str]) -> str:
+    """Class name plus the provider's message (CR-STG-008: run 36976623849 kept only the
+    class, so the cancel failure could not be diagnosed). Credentials are masked."""
+    message = redact(str(exc), hidden).replace("\n", " ").strip()
+    return f"{type(exc).__name__}: {message}"[:240] if message else type(exc).__name__
+
+
+async def _timed(report: Report, name: str, coro_factory, hidden=()) -> Any:
     started = time.perf_counter()
     try:
         result, evidence = await coro_factory()
@@ -120,7 +132,7 @@ async def _timed(report: Report, name: str, coro_factory) -> Any:
                 name,
                 "FAIL",
                 round((time.perf_counter() - started) * 1000, 1),
-                error=type(exc).__name__,
+                error=_error_text(exc, list(hidden)),
             )
         )
         return None
@@ -142,6 +154,7 @@ async def run(
     sender, receiver, packages = parsed["sender"], parsed["receiver"], parsed["packages"]
     options = scenario["provider_options"]
     cod = parsed["cod"]
+    hidden = [v for k in ("VTP_PASSWORD", "VTP_TOKEN", "VTP_USERNAME") if (v := env.get(k))]
     try:
 
         async def auth():
@@ -151,7 +164,7 @@ async def run(
             # Login + ownerconnect, or a create + cancel, prove Viettel Post accepted it.
             return result, {"authenticated": result.authenticated, "auth_mode": auth_mode(env)}
 
-        if await _timed(report, "authenticate", auth) is None:
+        if await _timed(report, "authenticate", auth, hidden) is None:
             return report
 
         async def services():
@@ -169,7 +182,7 @@ async def run(
                 "service_codes": sorted({s.service_code for s in result}),
             }
 
-        found = await _timed(report, "get_services", services)
+        found = await _timed(report, "get_services", services, hidden)
         if found is not None and not found:
             report.steps[-1].status = "FAIL"
             report.steps[-1].error = "no services returned for this route"
@@ -193,7 +206,7 @@ async def run(
             }
 
         if service_code:
-            await _timed(report, "calculate_fee", fee)
+            await _timed(report, "calculate_fee", fee, hidden)
         else:
             report.steps.append(Step("calculate_fee", "SKIPPED", error="no service code"))
 
@@ -229,19 +242,37 @@ async def run(
                 "status": result.status.value,
             }
 
-        created = await _timed(report, "create_shipment", create_order)
+        created = await _timed(report, "create_shipment", create_order, hidden)
         if created is None:
             report.steps.append(Step("cancel_shipment", "SKIPPED", error="create failed"))
             return report
 
-        async def cancel():
-            result = await provider.cancel_shipment(created.tracking_number)
-            return result, {
-                "tracking_number": result.tracking_number,
-                "cancelled": result.cancelled,
-            }
+        retries = int(env.get("VTP_E2E_CANCEL_RETRIES") or 3)
+        wait = float(env.get("VTP_E2E_CANCEL_WAIT_SECONDS") or 5)
 
-        await _timed(report, "cancel_shipment", cancel)
+        async def cancel():
+            # A cancel right after create was refused once while the same request with a NOTE
+            # succeeded minutes later (CR-STG-008): send a NOTE and retry business refusals.
+            last: Exception | None = None
+            for attempt in range(1, retries + 1):
+                try:
+                    result = await provider.cancel_shipment(
+                        created.tracking_number, note="VIP E2E test order - cancel"
+                    )
+                except ViettelPostBusinessError as exc:
+                    last = exc
+                    if isinstance(exc, ViettelPostAuthError) or attempt == retries:
+                        raise
+                    await asyncio.sleep(wait)
+                    continue
+                return result, {
+                    "tracking_number": result.tracking_number,
+                    "cancelled": result.cancelled,
+                    "attempts": attempt,
+                }
+            raise last  # pragma: no cover - loop always returns or raises
+
+        await _timed(report, "cancel_shipment", cancel, hidden)
         return report
     finally:
         await provider.close()

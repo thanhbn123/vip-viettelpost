@@ -261,9 +261,12 @@ class ViettelPostProvider(ShippingProvider):
             "Viettel Post chưa công bố API tra cứu vận đơn trong tài liệu Partner chính thức."
         )
 
-    async def cancel_shipment(self, tracking_number: str) -> CancelShipmentResult:
+    async def cancel_shipment(
+        self, tracking_number: str, *, note: str | None = None
+    ) -> CancelShipmentResult:
+        """``note`` is sent as UpdateOrder ``NOTE`` (optional per the official page)."""
         try:
-            cancelled = await self.api.cancel_order(tracking_number)
+            cancelled = await self.api.cancel_order(tracking_number, note)
         except ValueError as exc:
             raise ViettelPostRequestError(str(exc)) from exc
         return CancelShipmentResult(
