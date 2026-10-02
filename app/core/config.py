@@ -1,3 +1,4 @@
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VTP_DEV_BASE_URL = "https://partnerdev.viettelpost.vn"
@@ -16,7 +17,8 @@ class Settings(BaseSettings):
 
     # Default is the documented DEVELOPMENT environment. Production must be chosen
     # explicitly (VTP_BASE_URL) so that no default configuration can reach it.
-    vtp_base_url: str = VTP_DEV_BASE_URL
+    # validate_default: APP_ENV=production with VTP_BASE_URL left out must fail, not use dev.
+    vtp_base_url: str = Field(default=VTP_DEV_BASE_URL, validate_default=True)
     vtp_username: str | None = None
     vtp_password: str | None = None
     vtp_token: str | None = None
@@ -40,7 +42,28 @@ class Settings(BaseSettings):
     provider_retry_base_delay: float = 0.2
     provider_retry_max_delay: float = 2.0
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        # A config error must never print other settings (tokens, passwords) into logs.
+        hide_input_in_errors=True,
+    )
+
+    @field_validator("vtp_base_url")
+    @classmethod
+    def _vtp_endpoint_matches_environment(cls, value: str, info: ValidationInfo) -> str:
+        """Credentials only ever go to an official Viettel Post host, and production and
+        development cannot be crossed by a missing or stray variable (CR-READY-001).
+        A field validator (not a model one) so an error never echoes other settings."""
+        base = value.rstrip("/")
+        if base not in (VTP_DEV_BASE_URL, VTP_PRODUCTION_BASE_URL):
+            raise ValueError("VTP_BASE_URL must be the Viettel Post development or production URL")
+        is_production = str(info.data.get("app_env", "")).strip().lower() == "production"
+        if is_production and base != VTP_PRODUCTION_BASE_URL:
+            raise ValueError("APP_ENV=production requires VTP_BASE_URL=" + VTP_PRODUCTION_BASE_URL)
+        if base == VTP_PRODUCTION_BASE_URL and not is_production:
+            raise ValueError("the production VTP_BASE_URL requires APP_ENV=production")
+        return base
 
 
 settings = Settings()
