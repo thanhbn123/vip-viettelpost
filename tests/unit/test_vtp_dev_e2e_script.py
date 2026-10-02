@@ -154,7 +154,12 @@ def test_workflow_command_refuses_production():
     result = _exact_command(
         ["-m", "scripts.vtp_dev_e2e"], {"VTP_BASE_URL": VTP_PRODUCTION_BASE_URL, "VTP_TOKEN": TOKEN}
     )
-    assert result.returncode == e2e.EXIT_REFUSED, result.stderr
+    # CR-READY-001: the app settings now refuse the production URL without APP_ENV=production
+    # while the script is still importing - earlier than the script's own REFUSED check.
+    # Either way: non-zero, nothing sent, and the token never printed.
+    assert result.returncode != 0
+    assert "requires APP_ENV=production" in result.stderr or "REFUSED" in result.stdout
+    assert TOKEN not in result.stdout + result.stderr
 
 
 def test_smoke_script_command_runs():
