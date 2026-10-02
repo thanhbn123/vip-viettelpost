@@ -57,5 +57,5 @@ OPTIONAL: `VTP_BASE_URL` (nếu đặt phải là URL dev), `VTP_TIMEOUT_SECONDS
 3. Cấp PostgreSQL 16 staging (host, port, db, user) → đặt `DATABASE_URL`.
 4. Cấp credential VTP **development** → `VTP_TOKEN` hoặc `VTP_USERNAME`/`VTP_PASSWORD`; gửi địa chỉ thử + ID địa danh → `VTP_E2E_SCENARIO_JSON`.
 5. Đăng ký URL webhook staging với VTP dev + `WEBHOOK_SHARED_SECRET`.
-6. Quyết định mở (không chặn staging, chặn production): `DECISIONS.md` mục "Quyết định còn mở"; riêng D-BIZ-001 (`order_payment`) cần có trước bước tạo đơn thử của G08.
+6. Quyết định mở (không chặn staging, chặn production): `DECISIONS.md` mục "Quyết định còn mở"; riêng D-BIZ-001 (`order_payment`) cần có trước bước tạo đơn thử của G08. (Cập nhật 2026-10-02: D-BIZ-001 đã quyết — xem `DECISIONS.md`.)
 7. Ruleset cho `develop` và `deploy/staging`: định nghĩa bằng code (`.github/rulesets/`, CR-STG-002); trạng thái áp dụng thật ghi ở `REPOSITORY_RULESETS.md` (đo 2026-09-29: repo PUBLIC, 0 ruleset trước khi áp; **đã áp** 23:26 +07 cùng ngày, 2 ruleset `active`).
