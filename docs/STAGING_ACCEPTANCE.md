@@ -82,3 +82,15 @@ Chưa làm: đăng ký webhook với Viettel Post và gọi thật từ Internet
 Lịch sử attempt 1–3: `authenticate FAIL` (`ViettelPostBusinessError`) với `VTP_USERNAME`/`VTP_PASSWORD`; kiểm tay trên partnerdev: `Username or password is not valid!`. G08 theo luật repo (`acceptance.py`) chỉ đòi 3 bước đọc trên partnerdev cùng SHA — **không** phụ thuộc D-BIZ-001; tạo đơn thật vẫn chờ D-BIZ-001.
 
 > **Đính chính 2026-10-02 (CR-STG-007):** `g08=PASS` của lần nghiệm thu thứ hai là **dương tính giả** — token giả cũng làm 3 bước đọc PASS. Lần tạo đơn (run 36900122982) cho `ViettelPostAuthError`. G08 hiện **BLOCKED_EXTERNAL_CREDENTIAL**; G15 PASS không đổi. Luật verdict G08 mới: đọc PASS **và** credential được VTP chấp nhận (Login, hoặc tạo + huỷ), nếu không → `CREDENTIAL_NOT_VERIFIED`.
+
+## Lần nghiệm thu thật thứ ba — G08 thật + G15 — 2026-10-02
+
+| Mục | Giá trị |
+|---|---|
+| Run | `Staging` 36978332181, push `deploy/staging`, 3 cổng duyệt bởi chủ dự án |
+| SHA | `aa5c4c0471374895af4b28b126a97bd702619de6` = HEAD `develop` |
+| VTP dev E2E | partnerdev, `auth_mode=login`; authenticate PASS (2021.8 ms); services PASS (8); fee PASS (SCN 44.717 VND); create PASS (303296591832); cancel PASS (attempts=2) — thoả luật CR-STG-007 cả hai nhánh |
+| Deploy | dump trước migration; PostgreSQL 160015; `shp_0004 (head)`; `STARTED aa5c4c0 (previous c6ee0d6)` |
+| Acceptance | 10/10 PASS → **`g15=PASS`, `g08=PASS`, `verdict=ACCEPTED`** |
+| Webhook VTP thật | 103 + 107 cho mỗi đơn thử, lưu `IGNORED/SHIPMENT_NOT_FOUND`; bằng chứng người gửi gián tiếp (xem MASTER_STATUS) |
+| Verifier độc lập | G08 PASS · STAGING ACCEPTANCE PASS |
