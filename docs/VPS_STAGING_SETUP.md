@@ -179,7 +179,7 @@ gh secret list --env staging --repo thanhbn123/vip-viettelpost; gh variable list
 
 Báo Claude "đã xong phần VPS". Claude sẽ đo lại Environment (chỉ tên), rồi kích hoạt workflow `Staging` trên đúng SHA `develop` (đẩy `deploy/staging`); anh duyệt job ở Environment `staging` trên GitHub. Workflow tự: kiểm đầu vào → build ảnh đúng SHA → sao lưu + migration → chạy app, kiểm SHA → acceptance trên `https://<tên miền>`.
 
-Việc còn lại ngoài VPS: đăng ký URL webhook `https://<tên miền>/api/v1/shipping/webhooks/viettel-post` (kèm `WEBHOOK_SHARED_SECRET`) ở phần *Cấu hình tài khoản* môi trường development trên partner Viettel Post; chốt D-BIZ-001 rồi đặt `VTP_E2E_SCENARIO_JSON`.
+Việc còn lại ngoài VPS: đăng ký URL webhook `https://<tên miền>/api/v1/shipping/webhooks/viettel-post` (kèm `WEBHOOK_SHARED_SECRET`) ở phần *Cấu hình tài khoản* môi trường development trên partner Viettel Post; đặt `VTP_E2E_SCENARIO_JSON` (D-BIZ-001 đã quyết 2026-10-02).
 
 ## Tên secret/variable (khớp code: `scripts/staging/preflight.py`, `.github/workflows/staging.yml`, `scripts/staging/methods/vps.sh`)
 
@@ -194,7 +194,7 @@ Việc còn lại ngoài VPS: đăng ký URL webhook `https://<tên miền>/api/
 | `DATABASE_URL_PSQL` | secret | không | không cần — tự suy từ `DATABASE_URL` |
 | `STAGING_BASE_URL`, `STAGING_DEPLOY_METHOD`, `STAGING_APP_DIR` | variable | có | C3 |
 | `STAGING_DOCKER_NETWORK` | variable | có **với kiến trúc này** (DB ở mạng `vip-staging`) | C3 |
-| `VTP_E2E_SCENARIO_JSON` | variable | có cho G08 | sau D-BIZ-001 |
+| `VTP_E2E_SCENARIO_JSON` | variable | có cho G08 | đã đặt (mã theo D-BIZ-001) |
 | `STAGING_SSH_PORT`, `STAGING_EXPECTED_HOSTNAME`, `STAGING_HOST_DENYLIST` | variable | không (hai cái sau **nên** đặt) | C3 |
 | `STAGING_APP_PORT`, `STAGING_PG_TOOLS_IMAGE` | variable | không | mặc định `8000`, `postgres:16` |
 

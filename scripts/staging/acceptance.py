@@ -12,7 +12,9 @@ in the log excerpt; only the variable NAME is reported on a hit.
 Verdict rules (docs/STAGING_ACCEPTANCE.md):
 * ``--kind staging``: G15 = PASS only if every G15 check is PASS on the real staging URL;
   G08 = PASS only if the Viettel Post DEVELOPMENT evidence shows authenticate, services
-  and fee PASS (no evidence -> BLOCKED). A check that could not run is NOT a pass.
+  and fee PASS AND the credential was accepted by Viettel Post (Login, or create+cancel);
+  reads alone with a static token -> CREDENTIAL_NOT_VERIFIED (CR-STG-007); no evidence ->
+  BLOCKED. A check that could not run is NOT a pass.
 * ``--kind rehearsal`` (CI, ephemeral containers): never ACCEPTED; G15 = NOT_STAGING.
 
 Side effect on the target: the idempotency check stores ONE synthetic webhook event for a
@@ -92,6 +94,16 @@ def secret_values(env: dict[str, str]) -> dict[str, list[str]]:
 
 def leaked(text: str, secrets: dict[str, list[str]]) -> list[str]:
     return sorted(name for name, parts in secrets.items() if any(p in text for p in parts))
+
+
+def credential_verified(evidence: dict) -> bool:
+    """Viettel Post itself accepted the credential in this run (CR-STG-007): Login +
+    ownerconnect succeeded, or a test order was created AND cancelled. A static VTP_TOKEN
+    with only the read-only steps proves nothing - partnerdev does not check it there."""
+    steps = {s.get("name"): s.get("status") for s in evidence.get("steps", [])}
+    if evidence.get("auth_mode") == "login" and steps.get("authenticate") == "PASS":
+        return True
+    return steps.get("create_shipment") == "PASS" and steps.get("cancel_shipment") == "PASS"
 
 
 def run(
@@ -227,12 +239,18 @@ def run(
             required = ("authenticate", "get_services", "calculate_fee")
             base = str(vtp_evidence.get("base_url", "")).rstrip("/")
             same_sha = vtp_evidence.get("sha") == expected_sha  # evidence of THIS run (M3)
-            ok = (
+            reads_ok = (
                 base == "https://partnerdev.viettelpost.vn"
                 and same_sha
                 and all(steps.get(n) == "PASS" for n in required)
             )
-            ev.g08 = "PASS" if ok else "FAIL"
+            # CR-STG-007: the read-only steps pass even with a fake static token, so G08 also
+            # needs proof that Viettel Post accepted the credential (Login, or create+cancel).
+            any_fail = any(st == "FAIL" for st in steps.values())
+            if reads_ok and not any_fail and not credential_verified(vtp_evidence):
+                ev.g08 = "CREDENTIAL_NOT_VERIFIED"
+            else:
+                ev.g08 = "PASS" if reads_ok and not any_fail else "FAIL"
         except (AttributeError, TypeError, KeyError):
             ev.g08 = "FAIL"
 

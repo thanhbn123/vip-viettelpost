@@ -115,6 +115,7 @@ def test_g08_needs_real_dev_evidence(deployed):
     good = {
         "base_url": "https://partnerdev.viettelpost.vn",
         "sha": SHA,
+        "auth_mode": "login",  # Login + ownerconnect: Viettel Post itself checked it
         "steps": [
             {"name": n, "status": "PASS"} for n in ("authenticate", "get_services", "calculate_fee")
         ],
@@ -138,6 +139,40 @@ def test_g08_needs_real_dev_evidence(deployed):
         vtp_evidence=mocked,
     )
     assert ev.g08 == "FAIL"
+
+
+def _g08(deployed, evidence):
+    return acceptance.run(
+        deployed,
+        ENV,
+        kind="staging",
+        expected_sha=SHA,
+        logs=lambda: f"ok {deployed.headers['X-Request-ID']}\n",
+        vtp_evidence=evidence,
+    ).g08
+
+
+def test_g08_static_token_with_reads_only_is_not_verified(deployed):
+    """CR-STG-007: a FAKE static token passed authenticate/services/fee on partnerdev (the
+    read endpoints do not check it), so reads alone must not give G08 PASS."""
+    reads = [
+        {"name": n, "status": "PASS"} for n in ("authenticate", "get_services", "calculate_fee")
+    ]
+    base = {"base_url": "https://partnerdev.viettelpost.vn", "sha": SHA, "steps": reads}
+    assert _g08(deployed, {**base, "auth_mode": "static_token"}) == "CREDENTIAL_NOT_VERIFIED"
+    assert _g08(deployed, base) == "CREDENTIAL_NOT_VERIFIED"  # old evidence: no auth_mode
+    created = reads + [
+        {"name": "create_shipment", "status": "PASS"},
+        {"name": "cancel_shipment", "status": "PASS"},
+    ]
+    assert _g08(deployed, {**base, "auth_mode": "static_token", "steps": created}) == "PASS"
+    half = reads + [
+        {"name": "create_shipment", "status": "PASS"},
+        {"name": "cancel_shipment", "status": "FAIL"},
+    ]
+    assert _g08(deployed, {**base, "auth_mode": "static_token", "steps": half}) == "FAIL"
+    login_failed = [{"name": "authenticate", "status": "FAIL"}]
+    assert _g08(deployed, {**base, "auth_mode": "login", "steps": login_failed}) == "FAIL"
 
 
 def test_cli_refuses_http_for_staging_and_bad_sha(tmp_path):
@@ -301,7 +336,7 @@ def test_real_e2e_script_evidence_is_accepted_for_g08(deployed, tmp_path):
     )
     assert code == 0
     real = json.loads(evidence.read_text())
-    assert real["sha"] == SHA
+    assert real["sha"] == SHA and real["auth_mode"] == "static_token"
     ev = acceptance.run(
         deployed,
         ENV,
@@ -309,6 +344,21 @@ def test_real_e2e_script_evidence_is_accepted_for_g08(deployed, tmp_path):
         expected_sha=SHA,
         logs=lambda: deployed.headers["X-Request-ID"],
         vtp_evidence=real,
+    )
+    assert ev.g08 == "CREDENTIAL_NOT_VERIFIED"  # CR-STG-007: reads do not prove the token
+    code = vtp_dev_e2e.main(
+        ["--create", "--evidence", str(evidence)],
+        env={**env, "VTP_E2E_ALLOW_CREATE": "yes"},
+        transport=httpx.MockTransport(Recorder(ROUTES)),
+    )
+    assert code == 0
+    ev = acceptance.run(
+        deployed,
+        ENV,
+        kind="staging",
+        expected_sha=SHA,
+        logs=lambda: deployed.headers["X-Request-ID"],
+        vtp_evidence=json.loads(evidence.read_text()),
     )
     assert ev.g08 == "PASS"
 
@@ -325,3 +375,44 @@ def test_real_e2e_script_evidence_is_accepted_for_g08(deployed, tmp_path):
         vtp_evidence=json.loads(evidence.read_text()),
     )
     assert ev.g08 == "FAIL"  # evidence not bound to this SHA
+
+
+def test_login_mode_script_evidence_gives_g08_pass(deployed, tmp_path):
+    """CR-STG-007: a username/password run (Login + ownerconnect over the network) records
+    auth_mode=login and is accepted without create; a rejected login is FAIL."""
+    import httpx
+
+    from app.providers.viettel_post.auth import LOGIN_PATH, OWNER_CONNECT_PATH
+    from scripts import vtp_dev_e2e
+    from tests.unit.test_vtp_auth import login_ok, owner_ok
+    from tests.unit.test_vtp_dev_e2e_script import ROUTES, SCENARIO
+    from tests.unit.vtp_fakes import Recorder, rejected, respond
+
+    scenario = tmp_path / "scenario.json"
+    scenario.write_text(json.dumps(SCENARIO))
+    evidence = tmp_path / "vtp-evidence.json"
+    env = {
+        "VTP_BASE_URL": "https://partnerdev.viettelpost.vn",
+        "VTP_USERNAME": "fake-test-user",
+        "VTP_PASSWORD": "fake-test-pass",
+        "VTP_E2E_SCENARIO": str(scenario),
+        "VTP_E2E_SHA": SHA,
+    }
+    routes = {**ROUTES, LOGIN_PATH: login_ok(), OWNER_CONNECT_PATH: owner_ok()}
+    recorder = Recorder(routes)
+    assert (
+        vtp_dev_e2e.main(
+            ["--evidence", str(evidence)], env=env, transport=httpx.MockTransport(recorder)
+        )
+        == 0
+    )
+    real = json.loads(evidence.read_text())
+    assert real["auth_mode"] == "login"
+    assert [r.url.path for r in recorder.requests][:2] == [LOGIN_PATH, OWNER_CONNECT_PATH]
+    assert _g08(deployed, real) == "PASS"
+
+    bad = {**routes, LOGIN_PATH: respond(rejected("Invalid owner account or password!"))}
+    vtp_dev_e2e.main(
+        ["--evidence", str(evidence)], env=env, transport=httpx.MockTransport(Recorder(bad))
+    )
+    assert _g08(deployed, json.loads(evidence.read_text())) == "FAIL"

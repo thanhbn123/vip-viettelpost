@@ -89,6 +89,11 @@ def load_scenario(path: str | None) -> dict[str, Any]:
     return data
 
 
+def auth_mode(env: dict[str, str]) -> str:
+    """``static_token`` (not verified by any call) or ``login`` (Login + ownerconnect)."""
+    return "static_token" if env.get("VTP_TOKEN") else "login"
+
+
 def build_provider(env: dict[str, str], transport=None) -> ViettelPostProvider:
     base_url = env.get("VTP_BASE_URL") or VTP_DEV_BASE_URL
     client = ViettelPostClient(
@@ -141,7 +146,10 @@ async def run(
 
         async def auth():
             result = await provider.authenticate()
-            return result, {"authenticated": result.authenticated}
+            # A static VTP_TOKEN is used as-is: no call is made, and partnerdev getPriceAll /
+            # getPrice do not check the Token header (CR-STG-007: a fake token passed). Only
+            # Login + ownerconnect, or a create + cancel, prove Viettel Post accepted it.
+            return result, {"authenticated": result.authenticated, "auth_mode": auth_mode(env)}
 
         if await _timed(report, "authenticate", auth) is None:
             return report
@@ -276,6 +284,7 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None, trans
                 "started_at": report.started_at,
                 # Binds the evidence to the deployed commit; acceptance requires a match.
                 "sha": env.get("VTP_E2E_SHA"),
+                "auth_mode": auth_mode(env),
                 "steps": [asdict(s) for s in report.steps],
             },
             ensure_ascii=False,
@@ -286,6 +295,11 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None, trans
     for step in report.steps:
         detail = step.error or json.dumps(step.evidence, ensure_ascii=False)
         print(f"[{step.status}] {step.name} ({step.duration_ms} ms) {detail}")
+    if auth_mode(env) == "static_token":
+        print(
+            "NOTE: VTP_TOKEN is used as-is and the read-only endpoints do not check it; "
+            "the credential is NOT verified unless create + cancel PASS (CR-STG-007)."
+        )
     return EXIT_FAIL if report.failed else EXIT_OK
 
 

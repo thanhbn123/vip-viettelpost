@@ -39,6 +39,7 @@ Job có `timeout-minutes` (verify 20, preflight 5, image 20, e2e 10, deploy 45);
 **Luật verdict**
 - `--kind staging`: **G15 = PASS** chỉ khi **cả 10** kiểm tra PASS trên URL `https://` staging thật; `NOT_RUN` không bao giờ tính là đạt. Verdict `ACCEPTED`.
 - **G08 = PASS** chỉ khi có bằng chứng do job `vtp-dev-e2e` **của chính lần chạy** tạo ra (tải từ artifact chỉ khi job đó thành công), `sha` trong bằng chứng = SHA được triển khai, `base_url` = `https://partnerdev.viettelpost.vn`, và `authenticate`, `get_services`, `calculate_fee` đều PASS; file hỏng/giả → FAIL; không có bằng chứng → `BLOCKED_EXTERNAL_CREDENTIAL`. Test giả lập HTTP (13 test của script) **không** bao giờ đóng G08.
+- **Bổ sung CR-STG-007 (2026-10-02):** ngoài các điều kiện trên, G08 chỉ PASS khi Viettel Post **đã chấp nhận credential** trong chính lần chạy: `auth_mode=login` với `authenticate` PASS (Login + ownerconnect gọi mạng thật), **hoặc** `create_shipment` và `cancel_shipment` đều PASS. Chỉ có 3 bước đọc với token tĩnh (`auth_mode=static_token` hoặc thiếu `auth_mode`) → **`CREDENTIAL_NOT_VERIFIED`** (đã đo: token giả cũng làm 3 bước đọc PASS). Bất kỳ bước nào `FAIL` → `FAIL`. G08 không ảnh hưởng `verdict` (verdict chỉ theo G15).
 - `--kind rehearsal` (job CI `rehearsal`, **không** có bước preflight, không có target: container tạm + PostgreSQL 16 service container của CI, secret sinh tạm): kết quả tốt nhất là `REHEARSAL_PASS`, G15 = G08 = `NOT_STAGING`. Chứng minh **cơ chế** pipeline chạy đúng, **không** phải bằng chứng staging.
 
 ## Webhook — hợp đồng đã kiểm bằng test tự động (không phải Internet thật)
@@ -79,3 +80,5 @@ Chưa làm: đăng ký webhook với Viettel Post và gọi thật từ Internet
 | Acceptance (`acceptance-evidence-c6ee0d6…`) | 10/10 PASS → **`g15=PASS`, `g08=PASS`, `verdict=ACCEPTED`** |
 
 Lịch sử attempt 1–3: `authenticate FAIL` (`ViettelPostBusinessError`) với `VTP_USERNAME`/`VTP_PASSWORD`; kiểm tay trên partnerdev: `Username or password is not valid!`. G08 theo luật repo (`acceptance.py`) chỉ đòi 3 bước đọc trên partnerdev cùng SHA — **không** phụ thuộc D-BIZ-001; tạo đơn thật vẫn chờ D-BIZ-001.
+
+> **Đính chính 2026-10-02 (CR-STG-007):** `g08=PASS` của lần nghiệm thu thứ hai là **dương tính giả** — token giả cũng làm 3 bước đọc PASS. Lần tạo đơn (run 36900122982) cho `ViettelPostAuthError`. G08 hiện **BLOCKED_EXTERNAL_CREDENTIAL**; G15 PASS không đổi. Luật verdict G08 mới: đọc PASS **và** credential được VTP chấp nhận (Login, hoặc tạo + huỷ), nếu không → `CREDENTIAL_NOT_VERIFIED`.
