@@ -73,7 +73,7 @@ Chưa làm: đăng ký webhook với Viettel Post và gọi thật từ Internet
 
 | Mục | Giá trị |
 |---|---|
-| Run | `Staging` 36757608002 **attempt 4**, push `deploy/staging`, 3 cổng duyệt bởi chủ dự án |
+| Run | `Staging` 36757608002 **attempt 4** — **G08 của lần này ĐÃ RÚT LẠI (dương tính giả, CR-STG-007)**, push `deploy/staging`, 3 cổng duyệt bởi chủ dự án |
 | SHA | `c6ee0d6f7edb103348ec71f83453e8fe56c69cd6` = HEAD `develop` |
 | VTP dev E2E (`vtp-evidence-c6ee0d6…`) | base `https://partnerdev.viettelpost.vn`; authenticate PASS (`VTP_TOKEN`); get_services PASS (8 dịch vụ); calculate_fee PASS (SCN, 44.717 VND); create_shipment NOT_SAFE; cancel SKIPPED |
 | Deploy | dump trước migration; PostgreSQL 160015; `shp_0004 (head)`; `STARTED c6ee0d6 (previous a6cadf7)` — lần đầu có bản trước để rollback (rollback chưa phải chạy) |

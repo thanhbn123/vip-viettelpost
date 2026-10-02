@@ -15,6 +15,9 @@ never printed. Evidence (no secrets, no personal data) is written as JSON.
 Exit codes: 0 authenticate, services (non-empty) and fee all passed (and create/cancel when
 requested) · 1 a step failed or was skipped · 2 refused (non-development URL, bad scenario
 or settings) · 3 BLOCKED_EXTERNAL_CREDENTIAL (no credentials configured).
+Since CR-READY-001 a VTP_BASE_URL that is not the official dev URL (or the production URL
+without APP_ENV=production) is refused while ``app.core.config`` is imported: the process
+then exits 1 with a one-line ValueError, before this script's own REFUSED (2) check.
 """
 
 import argparse

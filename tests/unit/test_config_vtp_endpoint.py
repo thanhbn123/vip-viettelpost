@@ -54,3 +54,10 @@ def test_config_error_never_echoes_other_settings():
     with pytest.raises(ValidationError) as info:
         make(app_env="production", vtp_token=secret, vtp_password=secret)
     assert secret not in str(info.value)
+
+
+def test_refused_url_with_embedded_credentials_is_not_echoed():
+    """hide_input_in_errors: a refused VTP_BASE_URL may itself carry a secret."""
+    with pytest.raises(ValidationError) as info:
+        make(vtp_base_url="https://u:fakePw9@e.test")  # short: pydantic truncates long input
+    assert "fakePw9" not in str(info.value)
