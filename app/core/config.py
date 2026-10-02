@@ -17,7 +17,8 @@ class Settings(BaseSettings):
 
     # Default is the documented DEVELOPMENT environment. Production must be chosen
     # explicitly (VTP_BASE_URL) so that no default configuration can reach it.
-    # validate_default: APP_ENV=production with VTP_BASE_URL left out must fail, not use dev.
+    # Validated even when left at the default (BaseSettings validates defaults; stated here
+    # explicitly): APP_ENV=production with VTP_BASE_URL left out must fail, not use dev.
     vtp_base_url: str = Field(default=VTP_DEV_BASE_URL, validate_default=True)
     vtp_username: str | None = None
     vtp_password: str | None = None
