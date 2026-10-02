@@ -3,6 +3,7 @@
 import json
 
 import httpx
+import pytest
 
 from app.core.config import VTP_DEV_BASE_URL, VTP_PRODUCTION_BASE_URL
 from app.providers.viettel_post import mapping
@@ -100,8 +101,12 @@ def test_create_then_cancel_when_authorised(tmp_path):
     assert steps["cancel_shipment"]["evidence"] == {
         "tracking_number": "15878180012",
         "cancelled": True,
+        "attempts": 1,
     }
     assert [r.url.path for r in recorder.requests][-1] == mapping.UPDATE_ORDER_STATUS_PATH
+    # CR-STG-008: the cancel carries a NOTE (the owner's successful manual cancel had one)
+    (cancel_body,) = recorder.bodies(mapping.UPDATE_ORDER_STATUS_PATH)
+    assert cancel_body["TYPE"] == 4 and cancel_body["NOTE"]
 
 
 def test_failed_step_is_reported_not_raised(tmp_path):
@@ -109,7 +114,7 @@ def test_failed_step_is_reported_not_raised(tmp_path):
     code, evidence = run(tmp_path, [], env(tmp_path), Recorder(routes))
     assert code == e2e.EXIT_FAIL
     fee = {s["name"]: s for s in evidence["steps"]}["calculate_fee"]
-    assert fee["status"] == "FAIL" and fee["error"] == "ViettelPostServerError"
+    assert fee["status"] == "FAIL" and fee["error"].startswith("ViettelPostServerError")
 
 
 def test_bad_scenario_is_refused(tmp_path):
@@ -187,3 +192,93 @@ def test_invalid_scenario_fields_are_refused_without_values(tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == e2e.EXIT_REFUSED
     assert "invalid fields" in out and "phone" in out and "Traceback" not in out
+
+
+def _sequence(*responders):
+    calls = iter(responders)
+    return lambda request: next(calls)(request)
+
+
+def test_cancel_retries_a_business_refusal_then_succeeds(tmp_path):
+    """CR-STG-008: run 36976623849 had cancel refused right after create; it is retried."""
+    from tests.unit.vtp_fakes import rejected
+
+    routes = {
+        **ROUTES,
+        mapping.UPDATE_ORDER_STATUS_PATH: _sequence(
+            respond(rejected("Don hang chua san sang")), respond(CANCEL_SAMPLE)
+        ),
+    }
+    recorder = Recorder(routes)
+    environ = env(tmp_path, VTP_E2E_ALLOW_CREATE="yes", VTP_E2E_CANCEL_WAIT_SECONDS="0")
+    code, evidence = run(tmp_path, ["--create"], environ, recorder)
+    assert code == e2e.EXIT_OK
+    cancel = {s["name"]: s for s in evidence["steps"]}["cancel_shipment"]
+    assert cancel["status"] == "PASS" and cancel["evidence"]["attempts"] == 2
+
+
+def test_cancel_failure_records_the_provider_message_without_secrets(tmp_path):
+    from tests.unit.vtp_fakes import rejected
+
+    secret = "fake-test-secret-pass-123"
+    routes = {
+        **ROUTES,
+        mapping.UPDATE_ORDER_STATUS_PATH: respond(rejected(f"Khong huy duoc {secret}")),
+    }
+    environ = env(
+        tmp_path,
+        VTP_E2E_ALLOW_CREATE="yes",
+        VTP_E2E_CANCEL_WAIT_SECONDS="0",
+        VTP_E2E_CANCEL_RETRIES="2",
+        VTP_PASSWORD=secret,
+    )
+    recorder = Recorder(routes)
+    code, evidence = run(tmp_path, ["--create"], environ, recorder)
+    assert code == e2e.EXIT_FAIL
+    cancel = {s["name"]: s for s in evidence["steps"]}["cancel_shipment"]
+    assert cancel["status"] == "FAIL"
+    assert cancel["error"].startswith("ViettelPostBusinessError")
+    assert "Khong huy duoc" in cancel["error"]
+    assert secret not in json.dumps(evidence)
+    paths = [r.url.path for r in recorder.requests]
+    assert paths.count(mapping.UPDATE_ORDER_STATUS_PATH) == 2
+
+
+def test_cancel_auth_error_is_not_retried(tmp_path):
+    from tests.unit.vtp_fakes import rejected
+
+    routes = {**ROUTES, mapping.UPDATE_ORDER_STATUS_PATH: respond(rejected("Token invalid"))}
+    environ = env(tmp_path, VTP_E2E_ALLOW_CREATE="yes", VTP_E2E_CANCEL_WAIT_SECONDS="0")
+    recorder = Recorder(routes)
+    code, _ = run(tmp_path, ["--create"], environ, recorder)
+    assert code == e2e.EXIT_FAIL
+    assert [r.url.path for r in recorder.requests].count(mapping.UPDATE_ORDER_STATUS_PATH) == 1
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"VTP_E2E_CANCEL_RETRIES": "0"},
+        {"VTP_E2E_CANCEL_RETRIES": "-1"},
+        {"VTP_E2E_CANCEL_RETRIES": "abc"},
+        {"VTP_E2E_CANCEL_WAIT_SECONDS": "x"},
+        {"VTP_E2E_CANCEL_WAIT_SECONDS": "999"},
+    ],
+)
+def test_bad_cancel_settings_refused_before_any_order_is_created(tmp_path, extra):
+    """Verifier PR #53: a bad retry value used to surface only after create succeeded."""
+    recorder = Recorder(ROUTES)
+    code, _ = run(
+        tmp_path, ["--create"], env(tmp_path, VTP_E2E_ALLOW_CREATE="yes", **extra), recorder
+    )
+    assert code == e2e.EXIT_REFUSED and recorder.requests == []
+
+
+def test_cancel_server_error_is_not_retried(tmp_path):
+    """Only business refusals are retried; HTTP errors fail at once."""
+    routes = {**ROUTES, mapping.UPDATE_ORDER_STATUS_PATH: respond({"message": "down"}, 503)}
+    environ = env(tmp_path, VTP_E2E_ALLOW_CREATE="yes", VTP_E2E_CANCEL_WAIT_SECONDS="0")
+    recorder = Recorder(routes)
+    code, _ = run(tmp_path, ["--create"], environ, recorder)
+    assert code == e2e.EXIT_FAIL
+    assert [r.url.path for r in recorder.requests].count(mapping.UPDATE_ORDER_STATUS_PATH) == 1
