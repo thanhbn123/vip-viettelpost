@@ -21,7 +21,10 @@ _JWT = re.compile(r"eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*){1,2}")
 # Credentials embedded in a URL — in practice the password in DATABASE_URL, which the
 # configured-secret list never sees. SQLAlchemy and psycopg print the DSN in connection
 # errors, so without this the password reaches the log on the first failed connect.
-_URL_CREDENTIALS = re.compile(r"(?P<head>://[^:/?#\[\]@\s]+:)[^@\s]+(?=@)")
+# The password may not contain "/", "?" or "#" (a DSN percent-encodes them), so stopping
+# at those keeps "https://host:443/v2/order?email=a@b" — port, path and query — intact.
+# Greedy up to the last "@" before them, so a password containing "@" is fully masked.
+_URL_CREDENTIALS = re.compile(r"(?P<head>://[^:/?#\[\]@\s]+:)[^\s/?#]+(?=@)")
 MASK = "***"
 
 

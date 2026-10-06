@@ -52,15 +52,27 @@ def test_database_url_password_is_masked_even_when_not_configured():
 
 
 def test_url_masking_keeps_ordinary_urls_intact():
+    """A port is not a password: "host:443/path?email=a@b" must survive untouched."""
     f = SecretMaskingFilter([])
     for url in (
         "https://partnerdev.viettelpost.vn/v2/order/getPrice",
         "https://cpn.viporder.vn/health/ready",
         "postgresql+psycopg://vip_user@db.internal:5432/vip_staging",
+        "https://partner2.viettelpost.vn:443/v2/order?email=cust@vip.vn",
+        "https://partnerdev.viettelpost.vn:443/v2/order/getPrice",
     ):
         r = record("calling %s", url)
         f.filter(r)
         assert r.getMessage() == f"calling {url}"
+
+
+def test_url_masking_covers_a_password_containing_an_at_sign():
+    f = SecretMaskingFilter([])
+    r = record("dsn %s", "postgresql://vip_user:not-real@pass@db.internal/vip_staging")
+    f.filter(r)
+    message = r.getMessage()
+    assert "not-real@pass" not in message and "pass@db" not in message
+    assert message == f"dsn postgresql://vip_user:{MASK}" + "@db.internal/vip_staging"
 
 
 def test_request_id_filter_and_json_formatter():
