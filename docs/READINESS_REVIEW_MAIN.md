@@ -43,7 +43,7 @@ Nguồn: 3 reviewer độc lập chỉ-đọc (diff/migration/rollback; webhook/
 - M3: job phát lại webhook (`app.jobs.replay_webhooks`) chưa có lịch chạy.
 - M4: migration tạo index trên bảng lớn cần `CONCURRENTLY` (không ảnh hưởng CSDL mới).
 - Chuỗi cung ứng: chưa bật Dependabot, chưa khoá phụ thuộc bắc cầu, ảnh gốc và Actions chưa ghim theo digest/SHA.
-- Cách ly staging: VPS `160.22.170.20` (chọn riêng ngày 30/09) nay chạy thêm dự án khác dưới cùng user `deploy` (nhóm `docker` ≈ root) và cùng Caddy `vip-staging-caddy`; dự án khác có thể đọc/sửa env, CSDL, container staging. Không ảnh hưởng production; ảnh hưởng độ tin của bằng chứng staging về sau. Chủ dự án quyết: tách lại VPS hoặc tách user/nhóm.
+- Cách ly staging: VPS `160.22.170.20` (chọn riêng ngày 30/09) nay chạy thêm dự án khác dưới cùng user `deploy` (nhóm `docker` ≈ root) và cùng Caddy `vip-staging-caddy`; dự án khác có thể đọc/sửa env, CSDL, container staging. Không ảnh hưởng production; ảnh hưởng độ tin của bằng chứng staging về sau. **Chủ dự án quyết 2026-10-07: giữ dùng chung, chấp nhận rủi ro** (không tách VPS, không tách user). Hệ quả: bằng chứng staging chỉ đáng tin khi kèm kiểm `version`/SHA và marker `STAGING_TARGET` như hiện có; mọi sửa `~deploy/.ssh/authorized_keys` phải giữ khoá CI (lần 02/10 đã gỡ nhầm).
 - Quy tắc `main`/`develop`: 0 lượt duyệt, `strict=false` (một người bảo trì); Environment `staging` cho admin bỏ qua.
 - LOW: `/health/ready` công khai trả SHA + tên lớp lỗi; mặt nạ log chưa gồm mật khẩu trong `DATABASE_URL`; `.gitignore` chưa loại `*.pem`/`*.key`; fingerprint webhook khi thiếu ngày hash toàn bộ DATA; không có máy trạng thái đơn điệu khi ngày bằng nhau.
 
