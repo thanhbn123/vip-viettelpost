@@ -1,9 +1,10 @@
 """Logging: request id on every record, secret masking, optional JSON output (G11).
 
 Masking is a safety net, not the primary control: code must still never log secrets.
-It masks JWT-shaped strings and every configured secret value (VTP password/token,
-webhook secret) wherever they appear in a formatted message or traceback. Raw API keys
-are never configured (only their SHA-256), so they are not in this list.
+It masks JWT-shaped strings, credentials embedded in a URL (the DATABASE_URL password)
+and every configured secret value (VTP password/token, webhook secret) wherever they
+appear in a formatted message or traceback. Raw API keys are never configured (only
+their SHA-256), so they are not in this list.
 """
 
 import contextvars
@@ -17,6 +18,21 @@ request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 _JWT = re.compile(r"eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*){1,2}")
+# Credentials embedded in a URL — in practice the password in DATABASE_URL, which the
+# configured-secret list never sees. SQLAlchemy and psycopg print the DSN in connection
+# errors, so without this the password reaches the log on the first failed connect.
+# The password stops at "/", "?" and "#" (a DSN percent-encodes those), which keeps
+# "https://host:443/v2/order?email=a@b" — port, path and query — intact, and is greedy up
+# to the last "@" before them, so a password containing "@" is masked whole.
+#
+# Everything else is allowed in the password on purpose, even though the pattern then runs
+# over text that is not a URL: a "host:port" followed on the same line by a comma and an
+# address loses the port and everything up to that address. That
+# over-masks, which is ugly but visible. Narrowing the class to stop at "," & " \' = would
+# fix the cosmetics and LEAK: RFC 3986 allows those in userinfo, so for a password like
+# "pa,ss&x" the pattern would no longer reach the "@", match nothing, and print the
+# password in full. A mask must fail towards masking too much (CLAUDE.md 12.2).
+_URL_CREDENTIALS = re.compile(r"(?P<head>://[^:/?#\[\]@\s]+:)[^\s/?#]+(?=@)")
 MASK = "***"
 
 
@@ -35,6 +51,7 @@ class SecretMaskingFilter(logging.Filter):
     def mask(self, text: str) -> str:
         for secret in self._secrets:
             text = text.replace(secret, MASK)
+        text = _URL_CREDENTIALS.sub(rf"\g<head>{MASK}", text)
         return _JWT.sub(MASK, text)
 
     def filter(self, record: logging.LogRecord) -> bool:

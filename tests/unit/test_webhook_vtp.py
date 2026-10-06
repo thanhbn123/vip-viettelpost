@@ -180,6 +180,26 @@ def test_fingerprint_fallback_without_status_date_is_deterministic():
     assert a.basis is FingerprintBasis.FULL_DATA
 
 
+def test_fingerprint_fallback_separates_two_delivery_attempts_of_one_status():
+    """Regression (CR-READY-002, reverted): narrowing the fallback merged these two.
+
+    Without ORDER_STATUSDATE the only thing telling two real delivery attempts apart is
+    a 'volatile' field. Merging them drops the second as DUPLICATE — silent event loss.
+    """
+    data = copy.deepcopy(vtp_payload()["DATA"])
+    del data["ORDER_STATUSDATE"]
+    kwargs = {
+        "provider": "VIETTEL_POST",
+        "tracking_number": "TESTVTP0000000001",
+        "provider_status": "103",
+        "status_date_raw": None,
+    }
+    first = build_fingerprint(**kwargs, data={**data, "LOCATION_CURRENTLY": "BC Cau Giay"})
+    second = build_fingerprint(**kwargs, data={**data, "LOCATION_CURRENTLY": "BC Ben Thanh"})
+    assert first != second
+    assert first.basis is FingerprintBasis.FULL_DATA
+
+
 def test_storage_failure_releases_claim_so_retry_is_processed(stores):
     idem, events = stores
 

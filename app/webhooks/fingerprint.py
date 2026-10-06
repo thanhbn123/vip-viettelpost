@@ -12,7 +12,16 @@ TOKEN, NOTE, STATUS_NAME, LOCATION_CURRENTLY, MONEY_*, EMPLOYEE_*, POD, REASON_C
 receive time.
 
 If ORDER_STATUSDATE is absent, the fingerprint falls back to a canonical hash of the
-whole DATA object, so two distinct transitions with the same status are not merged.
+WHOLE DATA object — volatile fields included. That is deliberate, and it was re-measured
+on 2026-10-07 after an attempt to narrow it (CR-READY-002) was reverted:
+
+Narrowing the fallback to the "stable" fields leaves only ORDER_NUMBER, ORDER_REFERENCE,
+ORDER_STATUS, RECEIVER_FULLNAME and IS_RETURNING. Two genuinely distinct delivery
+attempts that share a status then collide, and the second is dropped as DUPLICATE —
+silent event loss. Hashing everything has the opposite failure: a redelivery whose NOTE
+changed is processed twice, which the shipment state machine catches and which is
+visible. When only one of the two can hold, the fallback takes the visible failure
+(CLAUDE.md 12.2).
 """
 
 import hashlib
