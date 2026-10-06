@@ -165,8 +165,24 @@ case "$phase" in
       sh -c "$PGURL"'; pg_dump -Fc --no-owner "$u"' > "$backup.part" \
       || { rm -f "$backup.part"; die "BACKUP_FAILED: pg_dump before migration failed" 1; }
     [ -s "$backup.part" ] || { rm -f "$backup.part"; die "BACKUP_FAILED: empty dump" 1; }
+    # "Not empty" does not mean "restorable": a truncated or corrupt custom-format dump is
+    # still a non-empty file, and the rollback contract leans on this dump. Read its table
+    # of contents back with pg_restore, which parses the archive header and entry list.
+    toc="$(docker run --rm -i "$tools" pg_restore --list < "$backup.part" 2>&1)" \
+      || { rm -f "$backup.part"; die "BACKUP_UNREADABLE: pg_restore --list rejected the dump: ${toc:-no output}" 1; }
+    # An empty database legitimately dumps to an empty TOC (first release). A database that
+    # has tables must produce TABLE entries; if it does not, the dump is not what it claims.
+    tables="$(docker run --rm "${netargs[@]}" --env-file "$envf" "$tools" \
+      sh -c "$PGURL"'; psql "$u" -X -tA -c "select count(*) from pg_tables where schemaname=current_schema()"')" \
+      || die "PG_CHECK_FAILED: cannot count tables in the staging database" 1
+    tables="$(printf '%s' "$tables" | tr -d '[:space:]')"
+    toc_tables="$(printf '%s\n' "$toc" | grep -c ' TABLE ' || true)"
+    if [ "${tables:-0}" -gt 0 ] && [ "$toc_tables" -eq 0 ]; then
+      rm -f "$backup.part"
+      die "BACKUP_INCOMPLETE: database has $tables table(s) but the dump lists none" 1
+    fi
     mv -f "$backup.part" "$backup"
-    echo "pre-migration backup: $backup (PostgreSQL $ver)"
+    echo "pre-migration backup: $backup (PostgreSQL $ver, $toc_tables table(s) in the dump, verified with pg_restore --list)"
     docker run --rm "${netargs[@]}" --env-file "$envf" "$img" \
       alembic -c migrations/alembic.ini upgrade head \
       || die "MIGRATION_FAILED: alembic upgrade head exited non-zero" 1
