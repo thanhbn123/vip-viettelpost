@@ -21,9 +21,17 @@ _JWT = re.compile(r"eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*){1,2}")
 # Credentials embedded in a URL — in practice the password in DATABASE_URL, which the
 # configured-secret list never sees. SQLAlchemy and psycopg print the DSN in connection
 # errors, so without this the password reaches the log on the first failed connect.
-# The password may not contain "/", "?" or "#" (a DSN percent-encodes them), so stopping
-# at those keeps "https://host:443/v2/order?email=a@b" — port, path and query — intact.
-# Greedy up to the last "@" before them, so a password containing "@" is fully masked.
+# The password stops at "/", "?" and "#" (a DSN percent-encodes those), which keeps
+# "https://host:443/v2/order?email=a@b" — port, path and query — intact, and is greedy up
+# to the last "@" before them, so a password containing "@" is masked whole.
+#
+# Everything else is allowed in the password on purpose, even though the pattern then runs
+# over text that is not a URL: a "host:port" followed on the same line by a comma and an
+# address loses the port and everything up to that address. That
+# over-masks, which is ugly but visible. Narrowing the class to stop at "," & " \' = would
+# fix the cosmetics and LEAK: RFC 3986 allows those in userinfo, so for a password like
+# "pa,ss&x" the pattern would no longer reach the "@", match nothing, and print the
+# password in full. A mask must fail towards masking too much (CLAUDE.md 12.2).
 _URL_CREDENTIALS = re.compile(r"(?P<head>://[^:/?#\[\]@\s]+:)[^\s/?#]+(?=@)")
 MASK = "***"
 

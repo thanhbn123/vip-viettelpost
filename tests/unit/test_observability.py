@@ -51,6 +51,23 @@ def test_database_url_password_is_masked_even_when_not_configured():
     )
 
 
+def test_url_masking_prefers_over_masking_to_leaking():
+    """RFC 3986 allows , & = ' in userinfo; the mask must still cover the whole password.
+
+    Stopping the password at those characters would make the pattern miss the "@" and
+    print the password in full. The price is that a non-URL "host:port,...@..." string is
+    over-masked, which is visible in the log instead of silent.
+    """
+    f = SecretMaskingFilter([])
+    for dsn, expected_tail in (
+        ("postgresql://u:not-real,pw&x@db/vip", "@db/vip"),
+        ("postgresql://u:not-real=pw'q@db/vip", "@db/vip"),
+    ):
+        r = record("dsn %s", dsn)
+        f.filter(r)
+        assert r.getMessage() == f"dsn postgresql://u:{MASK}" + expected_tail
+
+
 def test_url_masking_keeps_ordinary_urls_intact():
     """A port is not a password: "host:443/path?email=a@b" must survive untouched."""
     f = SecretMaskingFilter([])
