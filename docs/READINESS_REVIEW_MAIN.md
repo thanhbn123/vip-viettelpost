@@ -13,9 +13,10 @@ Phạm vi: **review để merge `develop` → `main`**. Không phải phê duy�
 
 ## 2. Bằng chứng gate
 
-- **G08 PASS** — run 36978332181 (`aa5c4c0`), luật CR-STG-007 (chống dương tính giả): đăng nhập Partner dev thật (Login + ownerconnect), get_services, calculate_fee, **tạo** đơn thử 303296591832 và **huỷ**, `base_url` partnerdev, evidence gắn SHA. PASS 01/10 (run 36757608002) **đã rút lại**, không dùng làm căn cứ.
-- **G15 PASS** — staging thật `https://cpn.viporder.vn` (VPS riêng, PostgreSQL 16.15 container riêng), migration tới `shp_0004`, 10/10 kiểm tra, `version` = SHA.
-- **Quan hệ SHA staging ↔ develop:** `aa5c4c0` → `4bb746a` chỉ khác 5 file `docs/`. PR #56 đổi mã khởi động (`app/core/config.py`) ⇒ staging phải được **triển khai lại đúng SHA `develop` cuối** trước khi kết luận (mục 9).
+- **G08 PASS trên đúng `develop` cuối** — run 36990757808 (`26a5749`, 2026-10-06): evidence VTP `base_url` partnerdev, `auth_mode=login`, authenticate PASS (Login + ownerconnect thật), get_services PASS (8 dịch vụ), calculate_fee PASS (SCN 44.717 VND), không tạo đơn (create NOT_SAFE, cancel SKIPPED), không bước nào FAIL ⇒ thoả luật CR-STG-007 bằng nhánh "đăng nhập thật". Tạo + huỷ đơn thật đã chứng minh trước đó ở run 36978332181 (`aa5c4c0`: đơn thử 303296591832 tạo và huỷ). PASS 01/10 (run 36757608002) **đã rút lại**, không dùng làm căn cứ.
+- **G15 PASS trên đúng `develop` cuối** — cùng run 36990757808: staging thật `https://cpn.viporder.vn`, `expected_sha` = `deployed_sha` = `26a5749`, migration head `shp_0004`, 10/10 kiểm tra PASS, `g15=PASS`, `g08=PASS`, `verdict=ACCEPTED`. `verdict` chỉ phụ thuộc G15; G08 phải đọc ở trường riêng.
+- **Quan hệ SHA staging ↔ develop:** staging chạy đúng `26a5749` = HEAD `develop` (đo `/health/ready` 2026-10-06 23:50 +07).
+- **Sự cố môi trường trước lượt chạy:** lần deploy đầu của run hỏng ở SSH (`Permission denied (publickey)`) vì `authorized_keys` của user `deploy` trên VPS staging bị ghi lại thủ công 2026-10-02 19:56 +07 (khoá CI bị gỡ). Chủ dự án thêm lại khoá 2026-10-06; job deploy chạy lại thành công. VPS staging nay **dùng chung** với dự án khác (cùng user `deploy`, cùng Caddy) — xem follow-up.
 
 ## 3. Phân loại phát hiện
 
@@ -42,6 +43,7 @@ Nguồn: 3 reviewer độc lập chỉ-đọc (diff/migration/rollback; webhook/
 - M3: job phát lại webhook (`app.jobs.replay_webhooks`) chưa có lịch chạy.
 - M4: migration tạo index trên bảng lớn cần `CONCURRENTLY` (không ảnh hưởng CSDL mới).
 - Chuỗi cung ứng: chưa bật Dependabot, chưa khoá phụ thuộc bắc cầu, ảnh gốc và Actions chưa ghim theo digest/SHA.
+- Cách ly staging: VPS `160.22.170.20` (chọn riêng ngày 30/09) nay chạy thêm dự án khác dưới cùng user `deploy` (nhóm `docker` ≈ root) và cùng Caddy `vip-staging-caddy`; dự án khác có thể đọc/sửa env, CSDL, container staging. Không ảnh hưởng production; ảnh hưởng độ tin của bằng chứng staging về sau. Chủ dự án quyết: tách lại VPS hoặc tách user/nhóm.
 - Quy tắc `main`/`develop`: 0 lượt duyệt, `strict=false` (một người bảo trì); Environment `staging` cho admin bỏ qua.
 - LOW: `/health/ready` công khai trả SHA + tên lớp lỗi; mặt nạ log chưa gồm mật khẩu trong `DATABASE_URL`; `.gitignore` chưa loại `*.pem`/`*.key`; fingerprint webhook khi thiếu ngày hash toàn bộ DATA; không có máy trạng thái đơn điệu khi ngày bằng nhau.
 
@@ -78,4 +80,4 @@ PASS cho mã: không secret thật trong file theo dõi và toàn bộ lịch s�
 
 ## 9. Kết luận
 
-Ghi ở `MASTER_STATUS.md` sau khi staging chạy lại đúng SHA `develop` cuối và verifier độc lập cuối cùng xong.
+**READY_FOR_MAIN_REVIEW** (2026-10-06). `develop` `26a5749`: CI sau merge run 36990523295 5/5; staging thật đúng SHA (run 36990757808) G15 PASS + G08 PASS; verifier độc lập cuối chỉ-đọc **PASS** (10/10 khẳng định; `ruff` sạch, `pytest` 557 passed / 10 skipped cục bộ, phần PostgreSQL do job CI `postgres` phủ). Không còn blocker cho merge; 5 mục ở mục 3 **chặn production**, không chặn merge. Merge `develop` → `main` là quyết định của chủ dự án; lượt này **không** merge `main`, **không** triển khai production.
