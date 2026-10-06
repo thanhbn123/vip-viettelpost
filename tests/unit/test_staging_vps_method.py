@@ -88,7 +88,11 @@ case "$1" in
           echo "pg_restore: error: did not find magic string" >&2; exit 1
         fi
         [ -n "${FAKE_PG_RESTORE_EMPTY:-}" ] && exit 0
-        echo "123; 1259 16400 TABLE public shipments vip"; exit 0;;
+        # Real pg_restore emits a TABLE entry and a separate TABLE DATA entry per table.
+        printf '%s\n' "215; 1259 16400 TABLE public shipments vip" \
+          "3012; 0 16400 TABLE DATA public shipments vip" \
+          "2890; 2606 16420 CONSTRAINT public shipments shipments_pkey vip"
+        exit 0;;
       *"show server_version_num"*) echo "${FAKE_PG_VERSION:-160004}"; exit "${FAKE_PG_RC:-0}";;
       *pg_dump*) echo "PGDMP-fake"; exit "${FAKE_DUMP_RC:-0}";;
       *"from pg_tables"*) echo "${FAKE_TABLE_COUNT:-4}"; exit 0;;

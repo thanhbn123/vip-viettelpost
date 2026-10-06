@@ -172,11 +172,17 @@ case "$phase" in
       || { rm -f "$backup.part"; die "BACKUP_UNREADABLE: pg_restore --list rejected the dump: ${toc:-no output}" 1; }
     # An empty database legitimately dumps to an empty TOC (first release). A database that
     # has tables must produce TABLE entries; if it does not, the dump is not what it claims.
+    # current_schema() only: the app keeps everything in one schema. If that ever stops being
+    # true the count reads 0 and the TOC check is skipped -- it stops guarding, it does not
+    # start failing deploys wrongly.
     tables="$(docker run --rm "${netargs[@]}" --env-file "$envf" "$tools" \
       sh -c "$PGURL"'; psql "$u" -X -tA -c "select count(*) from pg_tables where schemaname=current_schema()"')" \
       || die "PG_CHECK_FAILED: cannot count tables in the staging database" 1
     tables="$(printf '%s' "$tables" | tr -d '[:space:]')"
-    toc_tables="$(printf '%s\n' "$toc" | grep -c ' TABLE ' || true)"
+    # Count TABLE entries only. A TOC line is "<id>; <oid> <oid> <type> <schema> <name> <owner>",
+    # and the data of each table is a separate "TABLE DATA" entry -- grepping " TABLE " would
+    # count every table twice and report a number that is not the number of tables.
+    toc_tables="$(printf '%s\n' "$toc" | awk '$4 == "TABLE" && $5 != "DATA" { n++ } END { print n + 0 }')"
     if [ "${tables:-0}" -gt 0 ] && [ "$toc_tables" -eq 0 ]; then
       rm -f "$backup.part"
       die "BACKUP_INCOMPLETE: database has $tables table(s) but the dump lists none" 1
