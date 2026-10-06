@@ -12,7 +12,14 @@ TOKEN, NOTE, STATUS_NAME, LOCATION_CURRENTLY, MONEY_*, EMPLOYEE_*, POD, REASON_C
 receive time.
 
 If ORDER_STATUSDATE is absent, the fingerprint falls back to a canonical hash of the
-whole DATA object, so two distinct transitions with the same status are not merged.
+DATA object *minus* those same volatile fields, so two distinct transitions with the
+same status are still not merged, while a redelivery of one transition that carries a
+different NOTE or LOCATION_CURRENTLY does deduplicate.
+
+That exclusion list is a denylist on purpose (CLAUDE.md 12.2): a volatile field we
+forget to list makes a redelivery look new, so the event is processed twice — visible,
+and caught downstream by the shipment state machine. Excluding too much would silently
+merge two real transitions into one, which is the failure nobody sees.
 """
 
 import hashlib
@@ -25,6 +32,24 @@ from typing import Any
 class FingerprintBasis(StrEnum):
     STATUS_TRANSITION = "provider+tracking+status+status_date"
     FULL_DATA = "provider+canonical_data"
+
+
+#: Fields that may differ between two deliveries of the same transition. Exact names
+#: come from the official payload; the prefixes cover the documented families
+#: (MONEY_TOTAL, MONEY_COLLECTION, ..., EMPLOYEE_NAME, EMPLOYEE_PHONE, ...).
+VOLATILE_DATA_FIELDS = frozenset(
+    {"TOKEN", "NOTE", "STATUS_NAME", "LOCATION_CURRENTLY", "POD", "REASON_CODE"}
+)
+VOLATILE_DATA_PREFIXES = ("MONEY_", "EMPLOYEE_")
+
+
+def stable_data(data: dict[str, Any]) -> dict[str, Any]:
+    """``data`` without the fields that vary between deliveries of one transition."""
+    return {
+        key: value
+        for key, value in data.items()
+        if key not in VOLATILE_DATA_FIELDS and not key.startswith(VOLATILE_DATA_PREFIXES)
+    }
 
 
 @dataclass(frozen=True)
@@ -52,7 +77,7 @@ def build_fingerprint(
             basis=FingerprintBasis.STATUS_TRANSITION,
         )
     return EventFingerprint(
-        value=_sha256([provider, data]),
+        value=_sha256([provider, stable_data(data)]),
         basis=FingerprintBasis.FULL_DATA,
     )
 

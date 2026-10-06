@@ -20,3 +20,13 @@ htmlcov/
 # Database dumps contain real data
 *.dump
 *.sql.gz
+
+# Keys and certificates must never be committed (readiness review 2026-10-02, LOW)
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+known_hosts

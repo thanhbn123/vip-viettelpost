@@ -6,7 +6,13 @@ import logging
 
 import pytest
 
-from app.core.logging import JsonFormatter, RequestIdFilter, SecretMaskingFilter, request_id_var
+from app.core.logging import (
+    MASK,
+    JsonFormatter,
+    RequestIdFilter,
+    SecretMaskingFilter,
+    request_id_var,
+)
 from app.core.metrics import Metrics
 from app.domain.models import Money, ShipmentStatus
 from app.providers.base.dto import CreateShipmentResult, FeeQuote
@@ -28,6 +34,33 @@ def test_secret_masking_filter():
     r = record("login %s token %s ok abc", "super-secret-password", "eyJhbGciOi.eyJzdWIi.sig")
     f.filter(r)
     assert r.getMessage() == "login *** token *** ok abc"
+
+
+def test_database_url_password_is_masked_even_when_not_configured():
+    """The DSN password is never in the configured-secret list, but drivers print it."""
+    f = SecretMaskingFilter([])
+    dsn = "postgresql+psycopg://vip_user:not-real-db-password@db.internal:5432/vip_staging"
+    r = record("connection failed: %s", dsn)
+    f.filter(r)
+    message = r.getMessage()
+    # Built from MASK, not written out: a masked DSN literal would itself trip the
+    # credential-shape scanner in tests/test_no_secrets.py.
+    assert "not-real-db-password" not in message
+    assert message == f"connection failed: postgresql+psycopg://vip_user:{MASK}" + (
+        "@db.internal:5432/vip_staging"
+    )
+
+
+def test_url_masking_keeps_ordinary_urls_intact():
+    f = SecretMaskingFilter([])
+    for url in (
+        "https://partnerdev.viettelpost.vn/v2/order/getPrice",
+        "https://cpn.viporder.vn/health/ready",
+        "postgresql+psycopg://vip_user@db.internal:5432/vip_staging",
+    ):
+        r = record("calling %s", url)
+        f.filter(r)
+        assert r.getMessage() == f"calling {url}"
 
 
 def test_request_id_filter_and_json_formatter():

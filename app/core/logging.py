@@ -1,9 +1,10 @@
 """Logging: request id on every record, secret masking, optional JSON output (G11).
 
 Masking is a safety net, not the primary control: code must still never log secrets.
-It masks JWT-shaped strings and every configured secret value (VTP password/token,
-webhook secret) wherever they appear in a formatted message or traceback. Raw API keys
-are never configured (only their SHA-256), so they are not in this list.
+It masks JWT-shaped strings, credentials embedded in a URL (the DATABASE_URL password)
+and every configured secret value (VTP password/token, webhook secret) wherever they
+appear in a formatted message or traceback. Raw API keys are never configured (only
+their SHA-256), so they are not in this list.
 """
 
 import contextvars
@@ -17,6 +18,10 @@ request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 _JWT = re.compile(r"eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*){1,2}")
+# Credentials embedded in a URL — in practice the password in DATABASE_URL, which the
+# configured-secret list never sees. SQLAlchemy and psycopg print the DSN in connection
+# errors, so without this the password reaches the log on the first failed connect.
+_URL_CREDENTIALS = re.compile(r"(?P<head>://[^:/?#\[\]@\s]+:)[^@\s]+(?=@)")
 MASK = "***"
 
 
@@ -35,6 +40,7 @@ class SecretMaskingFilter(logging.Filter):
     def mask(self, text: str) -> str:
         for secret in self._secrets:
             text = text.replace(secret, MASK)
+        text = _URL_CREDENTIALS.sub(rf"\g<head>{MASK}", text)
         return _JWT.sub(MASK, text)
 
     def filter(self, record: logging.LogRecord) -> bool:

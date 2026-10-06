@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.domain.models.shipment import ShipmentStatus
 from app.main import app
 from app.webhooks.dependencies import get_vtp_webhook_processor
-from app.webhooks.fingerprint import FingerprintBasis, build_fingerprint
+from app.webhooks.fingerprint import FingerprintBasis, build_fingerprint, stable_data
 from app.webhooks.processor import WebhookProcessor, WebhookResultKind
 from app.webhooks.stores import InMemoryIdempotencyStore, InMemoryWebhookEventStore
 from app.webhooks.viettel_post_payload import RejectionKind
@@ -178,6 +178,56 @@ def test_fingerprint_fallback_without_status_date_is_deterministic():
     b = build_fingerprint(**kwargs, data=dict(reversed(list(data.items()))))
     assert a == b
     assert a.basis is FingerprintBasis.FULL_DATA
+
+
+def test_fingerprint_fallback_ignores_volatile_fields():
+    """A redelivery of one transition differs in NOTE/LOCATION/MONEY; it must dedupe."""
+    data = copy.deepcopy(vtp_payload()["DATA"])
+    del data["ORDER_STATUSDATE"]
+    kwargs = {
+        "provider": "VIETTEL_POST",
+        "tracking_number": "TESTVTP0000000001",
+        "provider_status": "200",
+        "status_date_raw": None,
+    }
+    base = build_fingerprint(**kwargs, data=data)
+    redelivered = build_fingerprint(
+        **kwargs,
+        data={
+            **data,
+            "NOTE": "resent",
+            "LOCATION_CURRENTLY": "Buu cuc Cau Giay",
+            "MONEY_COLLECTION": 999,
+            "EMPLOYEE_NAME": "Nguyen Van A",
+            "TOKEN": "another-token",
+            "STATUS_NAME": "Dang giao",
+            "POD": "x",
+            "REASON_CODE": "7",
+        },
+    )
+    assert redelivered == base
+    assert base.basis is FingerprintBasis.FULL_DATA
+
+
+def test_fingerprint_fallback_still_separates_distinct_transitions():
+    data = copy.deepcopy(vtp_payload()["DATA"])
+    del data["ORDER_STATUSDATE"]
+    kwargs = {
+        "provider": "VIETTEL_POST",
+        "tracking_number": "TESTVTP0000000001",
+        "provider_status": "200",
+        "status_date_raw": None,
+    }
+    base = build_fingerprint(**kwargs, data=data)
+    assert build_fingerprint(**kwargs, data={**data, "ORDER_NUMBER": "TESTVTP0000000002"}) != base
+    assert build_fingerprint(**kwargs, data={**data, "ORDER_STATUS": 201}) != base
+
+
+def test_stable_data_keeps_identifying_fields():
+    data = copy.deepcopy(vtp_payload()["DATA"])
+    kept = stable_data({**data, "NOTE": "x", "MONEY_TOTAL": 1, "EMPLOYEE_PHONE": "0900"})
+    assert "ORDER_NUMBER" in kept and "ORDER_STATUS" in kept
+    assert {"NOTE", "MONEY_TOTAL", "EMPLOYEE_PHONE"}.isdisjoint(kept)
 
 
 def test_storage_failure_releases_claim_so_retry_is_processed(stores):
