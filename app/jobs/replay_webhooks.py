@@ -81,6 +81,10 @@ def unmatched_with_shipment(sessions: sessionmaker[Session]) -> int:
                     (ShippingWebhookEvent.processing_status == "IGNORED")
                     & (ShippingWebhookEvent.error_code == NOT_FOUND),
                 ),
+                # Still unattached. Without this the gauge also counts a FAILED event that
+                # a later run DID attach, so "unmatched" would not have been true of every
+                # row it counted -- a monitoring number has to mean what its name says.
+                ShippingWebhookEvent.shipment_id.is_(None),
                 exists().where(
                     Shipment.provider_id == ShippingWebhookEvent.provider_id,
                     Shipment.tracking_number == ShippingWebhookEvent.tracking_number,

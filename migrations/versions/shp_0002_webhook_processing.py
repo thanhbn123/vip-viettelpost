@@ -27,6 +27,16 @@ Downgrade refuses to run while rows exist that the old schema cannot hold
 Revision ID: shp_0002_webhook_processing
 Revises: shp_0001_shipping_gateway
 Create Date: 2026-09-29
+
+INDEX_LOCK_REVIEWED: ``ix_shipping_webhook_events_shipment_id`` is built inside the same
+``batch_alter_table`` that adds the column it indexes, alters other columns and adds a
+foreign key and a CHECK. That block already holds the table for its duration -- on SQLite
+batch mode rewrites the table outright -- so the index is not what makes this revision
+blocking. It cannot be built CONCURRENTLY either: the column does not exist until this
+block runs, and CREATE INDEX CONCURRENTLY cannot run inside the migration's transaction.
+On a populated ``shipping_webhook_events`` the whole revision needs a maintenance window,
+which belongs to the production runbook that does not exist yet
+(docs/READINESS_REVIEW_MAIN.md, production blocker 1).
 """
 
 from collections.abc import Sequence
