@@ -102,6 +102,10 @@ def replay_backlog(sessions=None, *, now=None) -> dict:
     Cached for a minute: /metrics exists to be scraped, and this is the one entry that
     costs a database round trip, so its cost must not scale with how often anyone polls.
     A backlog that needs a human is not a number that changes meaningfully in 60 seconds.
+    The error result is cached too, so for up to a minute after the database recovers the
+    gauge still reports the old failure. That is deliberate -- a database that is down is
+    exactly when hammering it with one query per scrape helps least -- and the cache is
+    per process, so a new container always starts cold.
     """
     from app.jobs.replay_webhooks import unmatched_with_shipment
 
