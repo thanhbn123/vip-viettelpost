@@ -166,8 +166,9 @@ def test_replay_backlog_gauge_counts_only_events_whose_shipment_now_exists(migra
     """What the gauge means, on real rows, on both backends.
 
     Counted: an event the replay job could attach today, because the shipment it refers
-    to has since been recorded. Not counted: an event whose shipment still does not
-    exist (nothing to attach it to) and one already processed.
+    to has since been recorded and the event is not attached yet. Not counted: an event
+    whose shipment still does not exist (nothing to attach it to), one already processed,
+    and one a previous run already attached.
     """
     from sqlalchemy import text
 
@@ -206,6 +207,26 @@ def test_replay_backlog_gauge_counts_only_events_whose_shipment_now_exists(migra
                 " 'READY_TO_PICK', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
             ),
             {"p": provider},
+        )
+        shipment = session.execute(
+            text("select id from shipments where tracking_number = 'TRK-HAS-SHIPMENT'")
+        ).scalar()
+        # A FAILED event that a previous run already attached: the name says "unmatched",
+        # so a row that IS matched must not be in the number.
+        session.execute(
+            text(
+                "update shipping_webhook_events set shipment_id = :s where tracking_number"
+                " = 'TRK-HAS-SHIPMENT' and processing_status = 'PROCESSED'"
+            ),
+            {"s": shipment},
+        )
+        event("TRK-ATTACHED", "FAILED")
+        session.execute(
+            text(
+                "update shipping_webhook_events set shipment_id = :s where tracking_number"
+                " = 'TRK-ATTACHED'"
+            ),
+            {"s": shipment},
         )
         session.commit()
 

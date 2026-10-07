@@ -34,6 +34,24 @@ cần người xử lý thì không phải con số đổi ý nghĩa trong vòng
 > VPS staging đang **dùng chung** với dự án khác (`READINESS_REVIEW_MAIN.md` mục 3). Tên unit
 > mang tiền tố `vip-viettelpost-` để không đụng dự án khác.
 
+Lệnh chạy nằm trong repo: `scripts/staging/vps/replay-webhooks.sh`. **Cố ý không viết thẳng
+vào `ExecStart=`** — bản đầu của runbook này viết inline và nó **sai**: systemd tự khai triển
+`$sha` trước khi `bash` kịp thấy, nên biến về rỗng, `--env-file` thành `/srv/vip-staging/env/.env`
+và thẻ ảnh thành `vip-shipping-gateway:staging-`; unit sẽ hỏng ngay lần kích hoạt đầu tiên.
+Một dòng `ExecStart` trong file Markdown thì **không có gì chạy thử nó được**; một script thì
+`shellcheck` đọc được và bộ thử chạy được (`tests/unit/test_staging_replay_script.py`).
+
+Chép script lên máy (chạy từ máy anh):
+
+```bash
+scp -i ~/.ssh/vip_viettelpost_staging_deploy \
+  -o UserKnownHostsFile=~/.ssh/vip_viettelpost_staging_known_hosts \
+  scripts/staging/vps/replay-webhooks.sh deploy@160.22.170.20:/srv/vip-staging/replay-webhooks.sh
+ssh -i ~/.ssh/vip_viettelpost_staging_deploy \
+  -o UserKnownHostsFile=~/.ssh/vip_viettelpost_staging_known_hosts \
+  deploy@160.22.170.20 'chmod 755 /srv/vip-staging/replay-webhooks.sh'
+```
+
 Tạo `/etc/systemd/system/vip-viettelpost-replay.service`:
 
 ```ini
@@ -45,15 +63,16 @@ Requires=docker.service
 [Service]
 Type=oneshot
 User=deploy
-# Chạy đúng ảnh của bản đang chạy, lấy SHA từ chính file trạng thái của lượt triển khai.
-ExecStart=/bin/bash -lc 'sha=$(cat /srv/vip-staging/state/current_sha); \
-  exec docker run --rm --network vip-staging \
-    --env-file "/srv/vip-staging/env/$sha.env" \
-    "vip-shipping-gateway:staging-$sha" \
-    python -m app.jobs.replay_webhooks'
-# Mã thoát 3 = chạy xong nhưng VẪN còn sự kiện chưa gắn: đó là lý do cần người nhìn.
-SuccessExitStatus=0
+ExecStart=/srv/vip-staging/replay-webhooks.sh
 ```
+
+Script tự kiểm trước khi chạy: có mốc `STAGING_TARGET`, `current_sha` đúng dạng 40 ký tự,
+file env tồn tại và khai `APP_ENV=staging`. Thiếu bất cứ thứ nào thì **không khởi động gì cả**.
+
+Mã thoát: `0` chạy xong và hết việc tồn; `3` chạy xong nhưng **vẫn còn** sự kiện chưa gắn —
+systemd ghi unit `failed`, đó chính là lúc cần người nhìn; khác hai số đó là lượt chạy hỏng.
+Không khai `SuccessExitStatus=`: `0` vốn đã là thành công, và nếu khai `3` vào đó thì đúng cái
+trạng thái cần người nhìn lại trở thành "thành công" — im lặng.
 
 Tạo `/etc/systemd/system/vip-viettelpost-replay.timer`:
 
@@ -66,11 +85,13 @@ OnBootSec=5min
 OnUnitActiveSec=15min
 # Trễ ngẫu nhiên để không trùng đúng lúc lượt triển khai đang khởi động lại dịch vụ.
 RandomizedDelaySec=120
-Persistent=true
 
 [Install]
 WantedBy=timers.target
 ```
+
+Không dùng `Persistent=true`: nó chỉ có tác dụng với `OnCalendar=`, mà đây là
+`OnBootSec`/`OnUnitActiveSec`. Khai vào chỉ làm người đọc tưởng có bù lượt đã lỡ.
 
 Bật:
 
