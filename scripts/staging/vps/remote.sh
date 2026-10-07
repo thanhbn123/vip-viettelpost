@@ -58,7 +58,10 @@ if [ "$phase" != "logs" ]; then
     mkdir "$lock" || die "LOCKED: cannot take $lock" 1
   fi
   echo "$$" > "$lock/pid"
-  trap 'rm -rf -- "$lock"' EXIT
+  # backup_work is set while a dump is being written and verified: an interrupted run must
+  # not leave a half-written .part behind looking like a backup.
+  backup_work=""
+  trap 'rm -rf -- "$lock"; [ -n "$backup_work" ] && rm -f -- "$backup_work.part" "$backup_work.err"' EXIT
 fi
 
 netargs=(--network "$net")
@@ -161,12 +164,49 @@ case "$phase" in
     ver="$(printf '%s' "$ver" | tr -d '[:space:]')"
     [[ "$ver" =~ ^16[0-9]{4}$ ]] || die "PG_VERSION_NOT_16: staging server_version_num='${ver:-none}'" 1
     backup="$dir/backups/$(date -u +%Y%m%dT%H%M%SZ)-$sha.dump"
+    backup_work="$backup"
     docker run --rm "${netargs[@]}" --env-file "$envf" "$tools" \
       sh -c "$PGURL"'; pg_dump -Fc --no-owner "$u"' > "$backup.part" \
       || { rm -f "$backup.part"; die "BACKUP_FAILED: pg_dump before migration failed" 1; }
     [ -s "$backup.part" ] || { rm -f "$backup.part"; die "BACKUP_FAILED: empty dump" 1; }
+    # "Not empty" does not mean "restorable": a truncated or corrupt custom-format dump is
+    # still a non-empty file, and the rollback contract leans on this dump. Read its table
+    # of contents back with pg_restore, which parses the archive header and entry list.
+    # stderr goes to its own file, never into $toc: a warning printed on a SUCCESSFUL list
+    # would otherwise be fed to the entry counter below.
+    if ! toc="$(docker run --rm -i "$tools" pg_restore --list < "$backup.part" 2>"$backup.err")"; then
+      why="$(cat "$backup.err" 2>/dev/null)"
+      rm -f "$backup.part" "$backup.err"
+      die "BACKUP_UNREADABLE: pg_restore --list rejected the dump: ${why:-no output}" 1
+    fi
+    rm -f "$backup.err"
+    # An empty database legitimately dumps to an empty TOC (first release). A database that
+    # has tables must produce TABLE entries; if it does not, the dump is not what it claims.
+    # Every non-system schema, not current_schema(): pg_dump dumps them all, so counting only
+    # the current one would read 0 for a database whose tables live elsewhere and quietly
+    # disable this gate -- a check that cannot fail is not a check.
+    tables="$(docker run --rm "${netargs[@]}" --env-file "$envf" "$tools" \
+      sh -c "$PGURL"'; psql "$u" -X -tA -c "select count(*) from pg_tables where schemaname not in (
+        '"'"'pg_catalog'"'"', '"'"'information_schema'"'"')"')" \
+      || { rm -f "$backup.part"; die "PG_CHECK_FAILED: cannot count tables in the staging database" 1; }
+    tables="$(printf '%s' "$tables" | tr -d '[:space:]')"
+    # The GATE counts entries, not tables: every line that is not a ";" comment is one
+    # archive entry. That needs no knowledge of the entry types, so the format cannot fool
+    # it -- and the gate is the part that must never quietly stop working.
+    toc_entries="$(printf '%s\n' "$toc" | awk 'NF && $0 !~ /^;/ { n++ } END { print n + 0 }')"
+    # The table count is for the operator reading the log, and is best effort. A TOC line is
+    # "<id>; <oid> <oid> <desc> <schema> <name> <owner>", but <desc> may itself contain a
+    # space ("TABLE DATA", "TABLE ATTACH"), so those two are excluded by name. A schema
+    # literally called DATA or ATTACH would be miscounted; the gate above is unaffected.
+    toc_tables="$(printf '%s\n' "$toc" \
+      | awk '$4 == "TABLE" && $5 != "DATA" && $5 != "ATTACH" { n++ } END { print n + 0 }')"
+    if [ "${tables:-0}" -gt 0 ] && [ "$toc_entries" -eq 0 ]; then
+      rm -f "$backup.part"
+      die "BACKUP_INCOMPLETE: database has $tables table(s) but the dump has no entries" 1
+    fi
     mv -f "$backup.part" "$backup"
-    echo "pre-migration backup: $backup (PostgreSQL $ver)"
+    backup_work=""  # finished backup from here on, no longer work in progress
+    echo "pre-migration backup: $backup (PostgreSQL $ver, $toc_entries archive entries, ~$toc_tables table(s), verified with pg_restore --list)"
     docker run --rm "${netargs[@]}" --env-file "$envf" "$img" \
       alembic -c migrations/alembic.ini upgrade head \
       || die "MIGRATION_FAILED: alembic upgrade head exited non-zero" 1

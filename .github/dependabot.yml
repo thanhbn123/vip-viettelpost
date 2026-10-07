@@ -1,0 +1,52 @@
+# Dependency updates (readiness review follow-up: supply chain).
+#
+# Updates arrive as pull requests against `develop`, which is the only branch that takes
+# changes (`main` is release-only). Every one still has to pass the five required checks
+# and be merged by a person: Dependabot has no write access to `develop` and the branch
+# ruleset grants it no bypass.
+#
+# Weekly, not daily, and capped: an unread pull request queue is not security, and a noisy
+# one trains people to merge without looking.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Asia/Ho_Chi_Minh
+    target-branch: develop
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      # One pull request for routine upgrades; anything major still arrives on its own,
+      # because a major version is a change to read, not a change to wave through.
+      python-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Asia/Ho_Chi_Minh
+    target-branch: develop
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Asia/Ho_Chi_Minh
+    target-branch: develop
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "docker"

@@ -82,8 +82,21 @@ case "$1" in
           prev="$a"
         done
         echo "running $sha" > "$d/containers/$name"; echo "cid-$name"; exit 0;;
+      *pg_restore*--list*)
+        cat >/dev/null
+        if [ -n "${FAKE_PG_RESTORE_FAIL:-}" ]; then
+          echo "pg_restore: error: did not find magic string" >&2; exit 1
+        fi
+        [ -n "${FAKE_PG_RESTORE_EMPTY:-}" ] && exit 0
+        # Real pg_restore emits a TABLE entry and a separate TABLE DATA entry per table.
+        printf '%s\n' "215; 1259 16400 TABLE public shipments vip" \
+          "3012; 0 16400 TABLE DATA public shipments vip" \
+          "3100; 0 0 TABLE ATTACH public shipments_2026 vip" \
+          "2890; 2606 16420 CONSTRAINT public shipments shipments_pkey vip"
+        exit 0;;
       *"show server_version_num"*) echo "${FAKE_PG_VERSION:-160004}"; exit "${FAKE_PG_RC:-0}";;
       *pg_dump*) echo "PGDMP-fake"; exit "${FAKE_DUMP_RC:-0}";;
+      *"from pg_tables"*) echo "${FAKE_TABLE_COUNT:-1}"; exit "${FAKE_TABLE_COUNT_RC:-0}";;
       *"upgrade head"*) exit "${FAKE_MIGRATE_RC:-0}";;
       *"alembic"*current*) echo "${FAKE_ALEMBIC_CURRENT:-shp_0004 (head)}"; exit 0;;
     esac
@@ -299,6 +312,23 @@ def test_exact_sha_is_propagated_and_latest_is_never_used(stg):
     assert oct(stat.S_IMODE(os.stat(stg.app / "env" / f"{SHA_A}.env").st_mode)) == "0o600"
 
 
+def test_pre_migration_dump_is_read_back_before_migrating(stg):
+    """M1: the rollback contract leans on this dump, so size alone is not evidence."""
+    r = stg.run("migrate", SHA_A)
+    assert r.returncode == 0, r.stderr
+    assert "pg_restore --list" in r.stdout
+    assert "4 archive entries, ~1 table(s)" in r.stdout  # ATTACH/DATA are not tables
+    docker = stg.log("docker.log")
+    assert docker.index("pg_restore --list") < docker.index("upgrade head")
+
+
+def test_successful_migrate_leaves_only_the_finished_dump(stg):
+    """No .part and no .err may survive a good run either."""
+    assert stg.run("migrate", SHA_A).returncode == 0
+    left = sorted(p.name.split("-", 1)[1] for p in (stg.app / "backups").glob("*"))
+    assert left == [f"{SHA_A}.dump"]
+
+
 def test_image_whose_embedded_sha_differs_is_rejected(stg):
     e = stg.env(SHA_A)
     Path(e["STAGING_IMAGE_ARCHIVE"]).write_text(
@@ -319,13 +349,22 @@ def test_image_whose_embedded_sha_differs_is_rejected(stg):
         ({"FAKE_ALEMBIC_CURRENT": "shp_0003"}, "MIGRATION_NOT_AT_HEAD"),
         ({"FAKE_PG_VERSION": "150008"}, "PG_VERSION_NOT_16"),
         ({"FAKE_DUMP_RC": "1"}, "BACKUP_FAILED"),
+        # M1: a dump that is non-empty but not restorable, and one that silently lost the
+        # tables, must both stop the deploy -- the rollback contract leans on this file.
+        ({"FAKE_PG_RESTORE_FAIL": "1"}, "BACKUP_UNREADABLE"),
+        ({"FAKE_PG_RESTORE_EMPTY": "1"}, "BACKUP_INCOMPLETE"),
+        # N3: the table count failing must not leave an unverified .part behind either.
+        ({"FAKE_TABLE_COUNT_RC": "1"}, "PG_CHECK_FAILED"),
     ],
 )
 def test_migration_problems_fail_the_phase(stg, over, marker):
     r = stg.run("migrate", SHA_A, **over)
     assert r.returncode != 0 and marker in r.stderr
-    if marker in ("PG_VERSION_NOT_16", "BACKUP_FAILED"):
-        assert "upgrade head" not in stg.log("docker.log")
+    if marker != "MIGRATION_NOT_AT_HEAD":
+        assert "upgrade head" not in stg.log("docker.log") or marker == "MIGRATION_FAILED"
+    if marker.startswith("BACKUP_") or marker == "PG_CHECK_FAILED":
+        # Nothing that was not verified may stay in backups/ looking like a backup.
+        assert not list((stg.app / "backups").glob("*")), "a rejected dump must not be kept"
 
 
 # 10, 11, 12: a failing release never becomes current and the previous one keeps running

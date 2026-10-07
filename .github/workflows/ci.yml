@@ -13,8 +13,8 @@ jobs:
     # Pinned linter (D-034). Config in pyproject.toml [tool.ruff.lint].
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
       - run: pip install ruff==0.6.9  # same pin as requirements-dev.txt
@@ -25,8 +25,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
       - run: pip install -r requirements-dev.txt
@@ -53,13 +53,35 @@ jobs:
       REQUIRE_POSTGRES: "1"
       TEST_POSTGRES_URL: postgresql+psycopg://ci:ci-only-throwaway@localhost:5432/shipping_ci
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
       - run: pip install -r requirements-dev.txt
+      - name: PostgreSQL 16 client tools (pg_dump / pg_restore)
+        # test_dump_toc_counter_matches_a_real_pg_dump needs them. Fail here if they are
+        # missing rather than let that test skip quietly: a check that silently stops
+        # running is worse than one that was never written.
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          # Trust-on-first-fetch is not trust: check the key is the published PGDG one
+          # before any package is installed from the repository it signs.
+          fp="$(gpg --show-keys --with-colons \
+            /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            | awk -F: '$1 == "fpr" { print $10; exit }')"
+          [ "$fp" = "B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8" ] \
+            || { echo "PGDG signing key fingerprint is $fp, not the expected one" >&2; exit 1; }
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc]" \
+            "https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+          pg_dump --version && pg_restore --version
       - name: Test suite on SQLite and PostgreSQL
-        run: pytest -q
+        # -rs lists every skip with its reason, so a check that stopped running is visible.
+        run: pytest -q -rs
       - name: Alembic CLI upgrade / downgrade / upgrade on PostgreSQL
         run: |
           python - <<'PY'
@@ -79,7 +101,7 @@ jobs:
     # Builds the runtime image and checks its hardening (G12). Never pushed anywhere.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Plant decoy secrets that must NOT reach the image (root and nested)
         run: |
           echo "DECOY_SECRET=must-not-be-in-image" > .env
@@ -122,10 +144,10 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
       - run: pip install -r requirements-dev.txt
