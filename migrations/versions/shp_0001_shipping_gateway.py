@@ -16,6 +16,10 @@ immediately-failed first deploy. See docs/DATABASE_SCHEMA.md.
 Revision ID: shp_0001_shipping_gateway
 Revises:
 Create Date: 2026-09-29
+
+INDEX_LOCK_REVIEWED: every index here is created on a table this same revision has just
+created, so there are no rows to scan and no lock anyone can wait on. CONCURRENTLY would
+not even be legal: it cannot run inside the migration's transaction.
 """
 
 from collections.abc import Sequence

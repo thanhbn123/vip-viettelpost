@@ -76,6 +76,32 @@ def ready():
     )
 
 
+def replay_backlog(sessions=None) -> dict:
+    """Events that should have been attached to a shipment by the replay job but were not.
+
+    This is the only thing that makes a replay job that is NOT running visible: the job
+    itself is silent when nobody schedules it, and the events simply sit in the table
+    (docs/RUNBOOK_REPLAY_WEBHOOKS.md). A value above zero that stays up means the job is
+    not running, or is failing.
+
+    Never raises: a metrics endpoint that 500s because of a slow query takes the rest of
+    the metrics with it, and losing the counters is worse than losing this one gauge.
+    """
+    from app.jobs.replay_webhooks import unmatched_with_shipment
+
+    try:
+        if sessions is None:
+            from app.core.database import get_session_factory
+
+            sessions = get_session_factory()
+        return {
+            "name": "webhook_events_unmatched_with_shipment",
+            "value": unmatched_with_shipment(sessions),
+        }
+    except Exception as exc:
+        return {"name": "webhook_events_unmatched_with_shipment", "error": type(exc).__name__}
+
+
 @router.get("/metrics", dependencies=[Depends(require_api_key)])
 def metrics_snapshot():
-    return metrics.snapshot()
+    return {**metrics.snapshot(), "gauges": [replay_backlog()]}

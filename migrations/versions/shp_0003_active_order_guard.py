@@ -13,6 +13,14 @@ change meanwhile (D-028). Nullable, no default: existing rows are unaffected.
 Portable partial index: PostgreSQL ``WHERE`` and SQLite ``WHERE`` (SQLite >= 3.8).
 Upgrade fails if duplicate active shipments already exist; resolve them first.
 
+INDEX_LOCK_REVIEWED: the plain form is deliberate here. This index is the guard that
+stops two races from creating the same order twice at the carrier, so it has to be in
+place before any row can slip past it -- CREATE INDEX CONCURRENTLY leaves a window where
+it is not enforcing, and it cannot run inside this migration's transaction. On a
+populated ``shipments`` table the build takes a write lock for its duration: that needs a
+maintenance window, which is part of the production runbook that does not exist yet
+(docs/READINESS_REVIEW_MAIN.md, production blocker 1).
+
 Revision ID: shp_0003_active_order_guard
 Revises: shp_0002_webhook_processing
 Create Date: 2026-09-29

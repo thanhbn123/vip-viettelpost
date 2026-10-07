@@ -59,7 +59,26 @@ def test_not_ready_when_database_unreachable(monkeypatch):
 def test_metrics_endpoint():
     with TestClient(app) as client:
         body = client.get("/metrics").json()
-    assert set(body) == {"counters", "timings"}
+    assert set(body) == {"counters", "timings", "gauges"}
+    backlog = next(
+        g for g in body["gauges"] if g["name"] == "webhook_events_unmatched_with_shipment"
+    )
+    assert "value" in backlog or "error" in backlog
+
+
+def test_replay_backlog_gauge_counts_events_waiting_for_the_job():
+    """The gauge is what makes a replay job nobody scheduled visible at all."""
+    from app.api.health import replay_backlog
+
+    class Sessions:
+        def __call__(self):
+            raise RuntimeError("no database here")
+
+    # A broken database degrades the gauge, never the rest of /metrics.
+    assert replay_backlog(Sessions()) == {
+        "name": "webhook_events_unmatched_with_shipment",
+        "error": "RuntimeError",
+    }
 
 
 def test_unexpected_error_log_line_carries_the_request_id():
