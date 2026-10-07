@@ -1,5 +1,8 @@
 """Liveness, readiness and metrics (G11). Readiness never calls the carrier."""
 
+import logging
+import threading
+import time
 from functools import lru_cache
 from pathlib import Path
 
@@ -14,6 +17,7 @@ from app.core.config import settings
 from app.core.database import get_engine
 from app.core.metrics import metrics
 
+logger = logging.getLogger("app.api.health")
 router = APIRouter()
 MIGRATIONS = Path(__file__).resolve().parents[2] / "migrations"
 
@@ -76,7 +80,12 @@ def ready():
     )
 
 
-def replay_backlog(sessions=None) -> dict:
+_BACKLOG_TTL_SECONDS = 60.0
+_backlog_cache: tuple[float, dict] | None = None
+_backlog_lock = threading.Lock()
+
+
+def replay_backlog(sessions=None, *, now=None) -> dict:
     """Events that should have been attached to a shipment by the replay job but were not.
 
     This is the only thing that makes a replay job that is NOT running visible: the job
@@ -85,21 +94,37 @@ def replay_backlog(sessions=None) -> dict:
     not running, or is failing.
 
     Never raises: a metrics endpoint that 500s because of a slow query takes the rest of
-    the metrics with it, and losing the counters is worse than losing this one gauge.
+    the metrics with it, and losing the counters is worse than losing this one gauge. The
+    failure is logged at WARNING with the traceback, so a gauge that is permanently an
+    "error" field -- a typo here would look exactly like a database problem -- leaves a
+    trail instead of sitting there quietly.
+
+    Cached for a minute: /metrics exists to be scraped, and this is the one entry that
+    costs a database round trip, so its cost must not scale with how often anyone polls.
+    A backlog that needs a human is not a number that changes meaningfully in 60 seconds.
     """
     from app.jobs.replay_webhooks import unmatched_with_shipment
 
+    global _backlog_cache
+    clock = now or time.monotonic
+    with _backlog_lock:
+        if _backlog_cache and clock() - _backlog_cache[0] < _BACKLOG_TTL_SECONDS:
+            return _backlog_cache[1]
     try:
         if sessions is None:
             from app.core.database import get_session_factory
 
             sessions = get_session_factory()
-        return {
+        result = {
             "name": "webhook_events_unmatched_with_shipment",
             "value": unmatched_with_shipment(sessions),
         }
     except Exception as exc:
-        return {"name": "webhook_events_unmatched_with_shipment", "error": type(exc).__name__}
+        logger.warning("replay backlog gauge unavailable: %s", type(exc).__name__, exc_info=True)
+        result = {"name": "webhook_events_unmatched_with_shipment", "error": type(exc).__name__}
+    with _backlog_lock:
+        _backlog_cache = (clock(), result)
+    return result
 
 
 @router.get("/metrics", dependencies=[Depends(require_api_key)])

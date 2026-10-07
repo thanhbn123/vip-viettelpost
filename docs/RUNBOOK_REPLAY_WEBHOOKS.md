@@ -25,6 +25,10 @@ Chỗ duy nhất nhìn thấy được là chỉ số `webhook_events_unmatched_
 chạy job, con số này phải về 0. **Nó lớn hơn 0 và không giảm nghĩa là job không chạy, hoặc đang
 hỏng** — đó là tín hiệu cần theo dõi, không phải con số để ngắm.
 
+Chỉ số này **đệm 60 giây**: `/metrics` sinh ra để bị quét liên tục, mà đây là mục duy nhất
+phải hỏi CSDL, nên chi phí của nó không được tỉ lệ với tần suất quét. Một đống việc tồn
+cần người xử lý thì không phải con số đổi ý nghĩa trong vòng một phút.
+
 ## 3. Cài trên máy staging (chủ dự án chạy, khi quyết định bật)
 
 > VPS staging đang **dùng chung** với dự án khác (`READINESS_REVIEW_MAIN.md` mục 3). Tên unit
