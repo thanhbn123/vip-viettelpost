@@ -58,8 +58,23 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements-dev.txt
+      - name: PostgreSQL 16 client tools (pg_dump / pg_restore)
+        # test_dump_toc_counter_matches_a_real_pg_dump needs them. Fail here if they are
+        # missing rather than let that test skip quietly: a check that silently stops
+        # running is worse than one that was never written.
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc]" \
+            "https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+          pg_dump --version && pg_restore --version
       - name: Test suite on SQLite and PostgreSQL
-        run: pytest -q
+        # -rs lists every skip with its reason, so a check that stopped running is visible.
+        run: pytest -q -rs
       - name: Alembic CLI upgrade / downgrade / upgrade on PostgreSQL
         run: |
           python - <<'PY'

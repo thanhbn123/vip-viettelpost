@@ -168,16 +168,23 @@ case "$phase" in
     # "Not empty" does not mean "restorable": a truncated or corrupt custom-format dump is
     # still a non-empty file, and the rollback contract leans on this dump. Read its table
     # of contents back with pg_restore, which parses the archive header and entry list.
-    toc="$(docker run --rm -i "$tools" pg_restore --list < "$backup.part" 2>&1)" \
-      || { rm -f "$backup.part"; die "BACKUP_UNREADABLE: pg_restore --list rejected the dump: ${toc:-no output}" 1; }
+    # stderr goes to its own file, never into $toc: a warning printed on a SUCCESSFUL list
+    # would otherwise be fed to the entry counter below.
+    if ! toc="$(docker run --rm -i "$tools" pg_restore --list < "$backup.part" 2>"$backup.err")"; then
+      why="$(cat "$backup.err" 2>/dev/null)"
+      rm -f "$backup.part" "$backup.err"
+      die "BACKUP_UNREADABLE: pg_restore --list rejected the dump: ${why:-no output}" 1
+    fi
+    rm -f "$backup.err"
     # An empty database legitimately dumps to an empty TOC (first release). A database that
     # has tables must produce TABLE entries; if it does not, the dump is not what it claims.
-    # current_schema() only: the app keeps everything in one schema. If that ever stops being
-    # true the count reads 0 and the TOC check is skipped -- it stops guarding, it does not
-    # start failing deploys wrongly.
+    # Every non-system schema, not current_schema(): pg_dump dumps them all, so counting only
+    # the current one would read 0 for a database whose tables live elsewhere and quietly
+    # disable this gate -- a check that cannot fail is not a check.
     tables="$(docker run --rm "${netargs[@]}" --env-file "$envf" "$tools" \
-      sh -c "$PGURL"'; psql "$u" -X -tA -c "select count(*) from pg_tables where schemaname=current_schema()"')" \
-      || die "PG_CHECK_FAILED: cannot count tables in the staging database" 1
+      sh -c "$PGURL"'; psql "$u" -X -tA -c "select count(*) from pg_tables where schemaname not in (
+        '"'"'pg_catalog'"'"', '"'"'information_schema'"'"')"')" \
+      || { rm -f "$backup.part"; die "PG_CHECK_FAILED: cannot count tables in the staging database" 1; }
     tables="$(printf '%s' "$tables" | tr -d '[:space:]')"
     # Count TABLE entries only. A TOC line is "<id>; <oid> <oid> <type> <schema> <name> <owner>",
     # and the data of each table is a separate "TABLE DATA" entry -- grepping " TABLE " would

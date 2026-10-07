@@ -95,7 +95,7 @@ case "$1" in
         exit 0;;
       *"show server_version_num"*) echo "${FAKE_PG_VERSION:-160004}"; exit "${FAKE_PG_RC:-0}";;
       *pg_dump*) echo "PGDMP-fake"; exit "${FAKE_DUMP_RC:-0}";;
-      *"from pg_tables"*) echo "${FAKE_TABLE_COUNT:-4}"; exit 0;;
+      *"from pg_tables"*) echo "${FAKE_TABLE_COUNT:-1}"; exit "${FAKE_TABLE_COUNT_RC:-0}";;
       *"upgrade head"*) exit "${FAKE_MIGRATE_RC:-0}";;
       *"alembic"*current*) echo "${FAKE_ALEMBIC_CURRENT:-shp_0004 (head)}"; exit 0;;
     esac
@@ -345,15 +345,18 @@ def test_image_whose_embedded_sha_differs_is_rejected(stg):
         # tables, must both stop the deploy -- the rollback contract leans on this file.
         ({"FAKE_PG_RESTORE_FAIL": "1"}, "BACKUP_UNREADABLE"),
         ({"FAKE_PG_RESTORE_EMPTY": "1"}, "BACKUP_INCOMPLETE"),
+        # N3: the table count failing must not leave an unverified .part behind either.
+        ({"FAKE_TABLE_COUNT_RC": "1"}, "PG_CHECK_FAILED"),
     ],
 )
 def test_migration_problems_fail_the_phase(stg, over, marker):
     r = stg.run("migrate", SHA_A, **over)
     assert r.returncode != 0 and marker in r.stderr
-    if marker in ("PG_VERSION_NOT_16", "BACKUP_FAILED", "BACKUP_UNREADABLE", "BACKUP_INCOMPLETE"):
-        assert "upgrade head" not in stg.log("docker.log")
-    if marker.startswith("BACKUP_"):
-        assert not list((stg.app / "backups").glob("*.dump")), "a rejected dump must not be kept"
+    if marker != "MIGRATION_NOT_AT_HEAD":
+        assert "upgrade head" not in stg.log("docker.log") or marker == "MIGRATION_FAILED"
+    if marker.startswith("BACKUP_") or marker == "PG_CHECK_FAILED":
+        # Nothing that was not verified may stay in backups/ looking like a backup.
+        assert not list((stg.app / "backups").glob("*")), "a rejected dump must not be kept"
 
 
 # 10, 11, 12: a failing release never becomes current and the previous one keeps running

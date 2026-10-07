@@ -205,3 +205,61 @@ def test_create_time_replay_savepoint_recovers_an_aborted_transaction(pg):
     with sessions() as s:
         row = s.get(Shipment, sid)
     assert row.tracking_number == "OUTER-COMMIT" and row.provider_status is None
+
+
+def test_dump_toc_counter_matches_a_real_pg_dump(pg, tmp_path):
+    """The deploy's table counter, run against output from a REAL pg_dump/pg_restore.
+
+    The unit tests for the migrate phase drive a FAKE pg_restore, so they prove the
+    dispatcher wiring and the ordering but say nothing about the real TOC format -- and
+    that gap is exactly where the first version of this counter was wrong (it matched the
+    "TABLE DATA" entry of every table and reported double). This test reads the awk program
+    out of remote.sh, so it fails if the two drift apart, and runs it on a genuine archive.
+    """
+    import re
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    for tool in ("pg_dump", "pg_restore", "awk"):
+        if not shutil.which(tool):
+            pytest.skip(f"{tool} is not on this runner")
+
+    engine, _ = pg
+    with engine.connect() as conn:
+        expected = conn.execute(
+            text(
+                "select count(*) from pg_tables "
+                "where schemaname not in ('pg_catalog', 'information_schema')"
+            )
+        ).scalar()
+    assert expected > 1, "migrated database should have several tables"
+
+    dsn = POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://")
+    dump = tmp_path / "pre-migration.dump"
+    subprocess.run(["pg_dump", "-Fc", "--no-owner", "-f", str(dump), dsn], check=True, timeout=120)
+    toc = subprocess.run(
+        ["pg_restore", "--list"],
+        stdin=dump.open("rb"),
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    ).stdout
+    assert " TABLE DATA " in toc, "real TOC should contain the entries that fooled the counter"
+
+    remote = (Path(__file__).resolve().parents[2] / "scripts/staging/vps/remote.sh").read_text()
+    program = re.search(r"awk '(\$4 == \"TABLE\".*?)'", remote, re.S)
+    assert program, "could not find the TOC counter in remote.sh"
+    counted = subprocess.run(
+        ["awk", program.group(1)], input=toc, capture_output=True, text=True, check=True, timeout=60
+    ).stdout.strip()
+    assert int(counted) == expected
+
+    # And a truncated archive must be rejected, not silently counted as zero tables.
+    broken = tmp_path / "broken.dump"
+    broken.write_bytes(dump.read_bytes()[: max(64, dump.stat().st_size // 3)])
+    rejected = subprocess.run(
+        ["pg_restore", "--list"], stdin=broken.open("rb"), capture_output=True, timeout=60
+    )
+    assert rejected.returncode != 0
