@@ -1,0 +1,370 @@
+name: Staging
+
+# Staging acceptance pipeline (CR-STG-001). Controlled triggers only:
+#  * workflow_dispatch: offered by GitHub once this file is on the default branch (main);
+#    choose "Use workflow from: develop" - the Environment only allows develop/deploy/staging.
+#  * push to branch `deploy/staging`: the pushed commit must already be on develop.
+# Order: verify exact SHA -> preflight (presence only) -> image -> [VTP DEV E2E] -> deploy
+# (migrate, start) -> acceptance on the REAL staging URL -> evidence -> verdict.
+# Fails closed at every step; never deploys production; never uses production credentials.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full 40-char commit SHA on develop to deploy"
+        required: true
+        type: string
+      run_vtp_dev_e2e:
+        description: "Run the Viettel Post DEVELOPMENT E2E check (read-only unless create is allowed)"
+        required: false
+        type: boolean
+        default: false
+      create_test_order:
+        description: "E2E: also create + cancel one DEV test order (also needs vars.VTP_E2E_ALLOW_CREATE=yes)"
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches: ["deploy/staging"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging
+  cancel-in-progress: false
+
+env:
+  SHA: ${{ inputs.sha || github.sha }}
+
+jobs:
+  verify:
+    name: Verify exact develop SHA (lint + tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: SHA is a full SHA contained in develop
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be a full 40-char SHA"; exit 1; }
+          test "$(git rev-parse HEAD)" = "$SHA"
+          git fetch --no-tags origin develop
+          git merge-base --is-ancestor "$SHA" origin/develop \
+            || { echo "::error::$SHA is not on develop"; exit 1; }
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - run: pip install --require-hashes -r requirements-dev.lock
+      - run: ruff check app tests migrations scripts
+      - run: pytest -q
+      - name: Single migration head
+        run: |
+          set -euo pipefail
+          heads="$(alembic -c migrations/alembic.ini heads | wc -l)"
+          test "$heads" = "1" || { echo "::error::expected one migration head, got $heads"; exit 1; }
+
+  preflight:
+    name: Preflight (presence of secrets/variables only)
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: staging
+    outputs:
+      g08_ready: ${{ steps.g08.outputs.ready }}
+      # Decided HERE, inside Environment `staging`: environment variables such as
+      # RUN_VTP_DEV_E2E are not visible to a job-level `if:` (CR-STG-006).
+      run_e2e: ${{ steps.g08.outputs.run_e2e }}
+    env:
+      # GitHub evaluates these to true/false; no secret value reaches the script.
+      HAS_DATABASE_URL: ${{ secrets.DATABASE_URL != '' }}
+      HAS_WEBHOOK_SHARED_SECRET: ${{ secrets.WEBHOOK_SHARED_SECRET != '' }}
+      HAS_API_KEYS: ${{ secrets.API_KEYS != '' }}
+      HAS_SMOKE_API_KEY: ${{ secrets.SMOKE_API_KEY != '' }}
+      HAS_VTP_TOKEN: ${{ secrets.VTP_TOKEN != '' }}
+      HAS_VTP_USERNAME: ${{ secrets.VTP_USERNAME != '' }}
+      HAS_VTP_PASSWORD: ${{ secrets.VTP_PASSWORD != '' }}
+      HAS_DATABASE_URL_PSQL: ${{ secrets.DATABASE_URL_PSQL != '' }}
+      # Method "vps" (CR-STG-VPS); checked only when STAGING_DEPLOY_METHOD=vps.
+      HAS_STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST != '' }}
+      HAS_STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER != '' }}
+      HAS_STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY != '' }}
+      HAS_STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS != '' }}
+      STAGING_APP_DIR: ${{ vars.STAGING_APP_DIR }}
+      STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
+      STAGING_DEPLOY_METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
+      VTP_E2E_SCENARIO_JSON: ${{ vars.VTP_E2E_SCENARIO_JSON }}
+      VTP_BASE_URL: ${{ vars.VTP_BASE_URL }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - name: G08 readiness (does not stop the run)
+        id: g08
+        env:
+          # dispatch: input; push: Environment variable RUN_VTP_DEV_E2E == 'true'.
+          WANT_E2E: ${{ inputs.run_vtp_dev_e2e || (github.event_name == 'push' && vars.RUN_VTP_DEV_E2E == 'true') }}
+        run: |
+          if python -m scripts.staging.preflight --gate g08; then ready=true; else ready=false; fi
+          echo "ready=${ready}" >> "$GITHUB_OUTPUT"
+          if [ "$ready" = "true" ] && [ "${WANT_E2E}" = "true" ]; then
+            echo "run_e2e=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_e2e=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: G15 preflight (stops the run when anything is missing)
+        run: python -m scripts.staging.preflight --gate g15 --report preflight.json
+      - if: always()
+        run: cat preflight.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+  image:
+    name: Build image for the exact SHA
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - run: docker build --build-arg GIT_SHA="${SHA}" -t "vip-shipping-gateway:staging-${SHA}" .
+      - name: Image checks (non-root, app imports, embedded SHA)
+        run: |
+          set -euo pipefail
+          img="vip-shipping-gateway:staging-${SHA}"
+          test "$(docker run --rm "$img" id -u)" = "10001"
+          test "$(docker run --rm "$img" python -c 'import os;print(os.environ["APP_GIT_SHA"])')" = "$SHA"
+          docker run --rm "$img" python -c "import app.main"
+          docker save "$img" | gzip > image.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image-${{ env.SHA }}
+          path: image.tar.gz
+          retention-days: 3
+
+  vtp-dev-e2e:
+    name: Viettel Post DEVELOPMENT E2E
+    needs: preflight
+    # Decided by the preflight job (credentials + scenario present, and requested). A
+    # job-level `if:` cannot read Environment variables, so it must not use vars.* (CR-STG-006).
+    if: ${{ needs.preflight.outputs.run_e2e == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - run: pip install --require-hashes -r requirements.lock
+      - name: Scenario
+        env:
+          SCENARIO: ${{ vars.VTP_E2E_SCENARIO_JSON }}
+        run: printf '%s' "${SCENARIO}" > "${RUNNER_TEMP}/scenario.json"
+      - name: Run (credentials from Environment secrets, never printed)
+        env:
+          VTP_BASE_URL: https://partnerdev.viettelpost.vn
+          VTP_USERNAME: ${{ secrets.VTP_USERNAME }}
+          VTP_PASSWORD: ${{ secrets.VTP_PASSWORD }}
+          VTP_TOKEN: ${{ secrets.VTP_TOKEN }}
+          VTP_E2E_SCENARIO: ${{ runner.temp }}/scenario.json
+          VTP_E2E_ALLOW_CREATE: ${{ vars.VTP_E2E_ALLOW_CREATE }}
+          VTP_E2E_SHA: ${{ env.SHA }}
+          CREATE: ${{ inputs.create_test_order || (github.event_name == 'push' && vars.VTP_E2E_CREATE_TEST_ORDER == 'yes') }}
+        run: |
+          set -uo pipefail
+          args=()
+          [ "${CREATE}" = "true" ] && args+=(--create)
+          python -m scripts.vtp_dev_e2e "${args[@]}" --evidence "${RUNNER_TEMP}/vtp-evidence.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: vtp-evidence-${{ env.SHA }}
+          path: ${{ runner.temp }}/vtp-evidence.json
+          if-no-files-found: ignore
+
+  deploy:
+    name: Deploy + acceptance on staging
+    needs: [image, vtp-dev-e2e]
+    # Runs even if the optional E2E was skipped, never if it (or anything before) failed.
+    if: ${{ !cancelled() && needs.image.result == 'success' && needs.vtp-dev-e2e.result != 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - run: pip install --require-hashes -r requirements-dev.lock
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: image-${{ env.SHA }}
+      # Only evidence produced by THIS run's successful E2E job is used, downloaded outside
+      # the workspace so a file committed to the repo can never be mistaken for it.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: ${{ needs.vtp-dev-e2e.result == 'success' }}
+        with:
+          name: vtp-evidence-${{ env.SHA }}
+          path: ${{ runner.temp }}/vtp
+      - name: Runtime env file (mode 600, never printed)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_PSQL: ${{ secrets.DATABASE_URL_PSQL }}
+          WEBHOOK_SHARED_SECRET: ${{ secrets.WEBHOOK_SHARED_SECRET }}
+          API_KEYS: ${{ secrets.API_KEYS }}
+          VTP_TOKEN: ${{ secrets.VTP_TOKEN }}
+          VTP_USERNAME: ${{ secrets.VTP_USERNAME }}
+          VTP_PASSWORD: ${{ secrets.VTP_PASSWORD }}
+          VTP_BASE_URL: https://partnerdev.viettelpost.vn
+          VTP_WEBHOOK_TIMEZONE: ${{ vars.VTP_WEBHOOK_TIMEZONE }}
+          LOG_FORMAT: json
+          APP_ENV: staging
+        run: |
+          set -euo pipefail
+          umask 077
+          python - <<'PY'
+          import os
+          names = ["DATABASE_URL", "DATABASE_URL_PSQL", "WEBHOOK_SHARED_SECRET", "API_KEYS", "VTP_TOKEN",
+                   "VTP_USERNAME", "VTP_PASSWORD", "VTP_BASE_URL", "VTP_WEBHOOK_TIMEZONE",
+                   "LOG_FORMAT", "APP_ENV"]
+          lines = []
+          for n in names:
+              v = os.environ.get(n, "")
+              if "\n" in v or "\r" in v:
+                  raise SystemExit(f"{n} contains a line break; refusing to write env file")
+              if v:
+                  lines.append(f"{n}={v}\n")
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "staging.env"), "w") as f:
+              f.writelines(lines)
+          PY
+      - name: Migrate (fails closed)
+        id: migrate
+        env:
+          STAGING_DEPLOY_METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
+          STAGING_IMAGE_ARCHIVE: image.tar.gz
+          STAGING_ENV_FILE: ${{ runner.temp }}/staging.env
+          STAGING_SHA: ${{ env.SHA }}
+          # Method "vps" inputs (unused by other methods); values are never printed.
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+          STAGING_SSH_PORT: ${{ vars.STAGING_SSH_PORT }}
+          STAGING_APP_DIR: ${{ vars.STAGING_APP_DIR }}
+          STAGING_APP_PORT: ${{ vars.STAGING_APP_PORT }}
+          STAGING_EXPECTED_HOSTNAME: ${{ vars.STAGING_EXPECTED_HOSTNAME }}
+          STAGING_HOST_DENYLIST: ${{ vars.STAGING_HOST_DENYLIST }}
+          STAGING_DOCKER_NETWORK: ${{ vars.STAGING_DOCKER_NETWORK }}
+          STAGING_PG_TOOLS_IMAGE: ${{ vars.STAGING_PG_TOOLS_IMAGE }}
+        run: bash scripts/staging/deploy.sh migrate
+      - name: Start exact image
+        id: start
+        env:
+          STAGING_DEPLOY_METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
+          STAGING_IMAGE_ARCHIVE: image.tar.gz
+          STAGING_ENV_FILE: ${{ runner.temp }}/staging.env
+          STAGING_SHA: ${{ env.SHA }}
+          # Method "vps" inputs (unused by other methods); values are never printed.
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+          STAGING_SSH_PORT: ${{ vars.STAGING_SSH_PORT }}
+          STAGING_APP_DIR: ${{ vars.STAGING_APP_DIR }}
+          STAGING_APP_PORT: ${{ vars.STAGING_APP_PORT }}
+          STAGING_EXPECTED_HOSTNAME: ${{ vars.STAGING_EXPECTED_HOSTNAME }}
+          STAGING_HOST_DENYLIST: ${{ vars.STAGING_HOST_DENYLIST }}
+          STAGING_DOCKER_NETWORK: ${{ vars.STAGING_DOCKER_NETWORK }}
+          STAGING_PG_TOOLS_IMAGE: ${{ vars.STAGING_PG_TOOLS_IMAGE }}
+        run: bash scripts/staging/deploy.sh start
+      - name: Wait for readiness
+        env:
+          BASE_URL: ${{ vars.STAGING_BASE_URL }}
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${BASE_URL%/}/health/ready" || true)"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "::error::/health/ready did not return 200"; exit 1
+      - name: Acceptance on the real staging URL
+        env:
+          ACCEPT_API_KEY: ${{ secrets.SMOKE_API_KEY }}
+          ACCEPT_WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SHARED_SECRET }}
+          ACCEPT_SCAN_VARS: ACCEPT_API_KEY,ACCEPT_WEBHOOK_SECRET,SCAN_DATABASE_URL,SCAN_VTP_TOKEN,SCAN_VTP_PASSWORD,STAGING_SSH_PRIVATE_KEY
+          SCAN_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SCAN_VTP_TOKEN: ${{ secrets.VTP_TOKEN }}
+          SCAN_VTP_PASSWORD: ${{ secrets.VTP_PASSWORD }}
+          STAGING_DEPLOY_METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
+          STAGING_SHA: ${{ env.SHA }}
+          BASE_URL: ${{ vars.STAGING_BASE_URL }}
+          # Method "vps" inputs (unused by other methods); values are never printed.
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+          STAGING_SSH_PORT: ${{ vars.STAGING_SSH_PORT }}
+          STAGING_APP_DIR: ${{ vars.STAGING_APP_DIR }}
+          STAGING_APP_PORT: ${{ vars.STAGING_APP_PORT }}
+          STAGING_EXPECTED_HOSTNAME: ${{ vars.STAGING_EXPECTED_HOSTNAME }}
+          STAGING_HOST_DENYLIST: ${{ vars.STAGING_HOST_DENYLIST }}
+          STAGING_DOCKER_NETWORK: ${{ vars.STAGING_DOCKER_NETWORK }}
+          STAGING_PG_TOOLS_IMAGE: ${{ vars.STAGING_PG_TOOLS_IMAGE }}
+        run: |
+          set -euo pipefail
+          vtp=()
+          ev="${RUNNER_TEMP}/vtp/vtp-evidence.json"
+          [ -f "$ev" ] && vtp=(--vtp-evidence "$ev")
+          python -m scripts.staging.acceptance --base-url "${BASE_URL%/}" --kind staging \
+            --expected-sha "$SHA" --evidence acceptance-evidence.json \
+            --logs-cmd "bash scripts/staging/deploy.sh logs" "${vtp[@]}"
+      # Also after a partial `start` or a cancellation/timeout: the hook's rollback must be
+      # safe to run when nothing changed (docs/STAGING_DEPLOYMENT.md, deploy contract).
+      - name: Roll back to the previous release on failure
+        if: ${{ (failure() || cancelled()) && (steps.start.outcome == 'success' || steps.start.outcome == 'failure' || steps.start.outcome == 'cancelled') }}
+        env:
+          STAGING_DEPLOY_METHOD: ${{ vars.STAGING_DEPLOY_METHOD }}
+          STAGING_SHA: ${{ env.SHA }}
+          # Method "vps" inputs (unused by other methods); values are never printed.
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+          STAGING_SSH_PORT: ${{ vars.STAGING_SSH_PORT }}
+          STAGING_APP_DIR: ${{ vars.STAGING_APP_DIR }}
+          STAGING_APP_PORT: ${{ vars.STAGING_APP_PORT }}
+          STAGING_EXPECTED_HOSTNAME: ${{ vars.STAGING_EXPECTED_HOSTNAME }}
+          STAGING_HOST_DENYLIST: ${{ vars.STAGING_HOST_DENYLIST }}
+          STAGING_DOCKER_NETWORK: ${{ vars.STAGING_DOCKER_NETWORK }}
+          STAGING_PG_TOOLS_IMAGE: ${{ vars.STAGING_PG_TOOLS_IMAGE }}
+        run: bash scripts/staging/deploy.sh rollback
+      - name: Evidence
+        if: always()
+        run: |
+          {
+            echo "### Staging acceptance for ${SHA}"
+            cat acceptance-evidence.json 2>/dev/null || echo "no acceptance evidence (earlier step failed)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: acceptance-evidence-${{ env.SHA }}
+          path: acceptance-evidence.json
+          if-no-files-found: ignore
+          retention-days: 90

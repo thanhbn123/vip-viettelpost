@@ -1,0 +1,19 @@
+# Never ship local secrets, databases, keys, virtualenvs or VCS data in the image.
+# "**/" makes each rule apply at any depth (verifier PR #18 finding 3).
+**/.env
+**/.env.*
+!.env.example
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.pem
+**/*.key
+**/.venv
+**/__pycache__
+**/*.pyc
+.git
+.github
+.pytest_cache
+.ruff_cache
+tests
+docs
