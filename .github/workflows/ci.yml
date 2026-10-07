@@ -66,6 +66,13 @@ jobs:
           sudo install -d /usr/share/postgresql-common/pgdg
           sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
             https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          # Trust-on-first-fetch is not trust: check the key is the published PGDG one
+          # before any package is installed from the repository it signs.
+          fp="$(gpg --show-keys --with-colons \
+            /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            | awk -F: '$1 == "fpr" { print $10; exit }')"
+          [ "$fp" = "B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8" ] \
+            || { echo "PGDG signing key fingerprint is $fp, not the expected one" >&2; exit 1; }
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc]" \
             "https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null

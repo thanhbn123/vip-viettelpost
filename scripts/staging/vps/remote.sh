@@ -58,7 +58,10 @@ if [ "$phase" != "logs" ]; then
     mkdir "$lock" || die "LOCKED: cannot take $lock" 1
   fi
   echo "$$" > "$lock/pid"
-  trap 'rm -rf -- "$lock"' EXIT
+  # backup_work is set while a dump is being written and verified: an interrupted run must
+  # not leave a half-written .part behind looking like a backup.
+  backup_work=""
+  trap 'rm -rf -- "$lock"; [ -n "$backup_work" ] && rm -f -- "$backup_work.part" "$backup_work.err"' EXIT
 fi
 
 netargs=(--network "$net")
@@ -161,6 +164,7 @@ case "$phase" in
     ver="$(printf '%s' "$ver" | tr -d '[:space:]')"
     [[ "$ver" =~ ^16[0-9]{4}$ ]] || die "PG_VERSION_NOT_16: staging server_version_num='${ver:-none}'" 1
     backup="$dir/backups/$(date -u +%Y%m%dT%H%M%SZ)-$sha.dump"
+    backup_work="$backup"
     docker run --rm "${netargs[@]}" --env-file "$envf" "$tools" \
       sh -c "$PGURL"'; pg_dump -Fc --no-owner "$u"' > "$backup.part" \
       || { rm -f "$backup.part"; die "BACKUP_FAILED: pg_dump before migration failed" 1; }
@@ -186,16 +190,23 @@ case "$phase" in
         '"'"'pg_catalog'"'"', '"'"'information_schema'"'"')"')" \
       || { rm -f "$backup.part"; die "PG_CHECK_FAILED: cannot count tables in the staging database" 1; }
     tables="$(printf '%s' "$tables" | tr -d '[:space:]')"
-    # Count TABLE entries only. A TOC line is "<id>; <oid> <oid> <type> <schema> <name> <owner>",
-    # and the data of each table is a separate "TABLE DATA" entry -- grepping " TABLE " would
-    # count every table twice and report a number that is not the number of tables.
-    toc_tables="$(printf '%s\n' "$toc" | awk '$4 == "TABLE" && $5 != "DATA" { n++ } END { print n + 0 }')"
-    if [ "${tables:-0}" -gt 0 ] && [ "$toc_tables" -eq 0 ]; then
+    # The GATE counts entries, not tables: every line that is not a ";" comment is one
+    # archive entry. That needs no knowledge of the entry types, so the format cannot fool
+    # it -- and the gate is the part that must never quietly stop working.
+    toc_entries="$(printf '%s\n' "$toc" | awk 'NF && $0 !~ /^;/ { n++ } END { print n + 0 }')"
+    # The table count is for the operator reading the log, and is best effort. A TOC line is
+    # "<id>; <oid> <oid> <desc> <schema> <name> <owner>", but <desc> may itself contain a
+    # space ("TABLE DATA", "TABLE ATTACH"), so those two are excluded by name. A schema
+    # literally called DATA or ATTACH would be miscounted; the gate above is unaffected.
+    toc_tables="$(printf '%s\n' "$toc" \
+      | awk '$4 == "TABLE" && $5 != "DATA" && $5 != "ATTACH" { n++ } END { print n + 0 }')"
+    if [ "${tables:-0}" -gt 0 ] && [ "$toc_entries" -eq 0 ]; then
       rm -f "$backup.part"
-      die "BACKUP_INCOMPLETE: database has $tables table(s) but the dump lists none" 1
+      die "BACKUP_INCOMPLETE: database has $tables table(s) but the dump has no entries" 1
     fi
     mv -f "$backup.part" "$backup"
-    echo "pre-migration backup: $backup (PostgreSQL $ver, $toc_tables table(s) in the dump, verified with pg_restore --list)"
+    backup_work=""  # finished backup from here on, no longer work in progress
+    echo "pre-migration backup: $backup (PostgreSQL $ver, $toc_entries archive entries, ~$toc_tables table(s), verified with pg_restore --list)"
     docker run --rm "${netargs[@]}" --env-file "$envf" "$img" \
       alembic -c migrations/alembic.ini upgrade head \
       || die "MIGRATION_FAILED: alembic upgrade head exited non-zero" 1

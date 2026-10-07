@@ -91,6 +91,7 @@ case "$1" in
         # Real pg_restore emits a TABLE entry and a separate TABLE DATA entry per table.
         printf '%s\n' "215; 1259 16400 TABLE public shipments vip" \
           "3012; 0 16400 TABLE DATA public shipments vip" \
+          "3100; 0 0 TABLE ATTACH public shipments_2026 vip" \
           "2890; 2606 16420 CONSTRAINT public shipments shipments_pkey vip"
         exit 0;;
       *"show server_version_num"*) echo "${FAKE_PG_VERSION:-160004}"; exit "${FAKE_PG_RC:-0}";;
@@ -316,9 +317,16 @@ def test_pre_migration_dump_is_read_back_before_migrating(stg):
     r = stg.run("migrate", SHA_A)
     assert r.returncode == 0, r.stderr
     assert "pg_restore --list" in r.stdout
-    assert "1 table(s) in the dump" in r.stdout
+    assert "4 archive entries, ~1 table(s)" in r.stdout  # ATTACH/DATA are not tables
     docker = stg.log("docker.log")
     assert docker.index("pg_restore --list") < docker.index("upgrade head")
+
+
+def test_successful_migrate_leaves_only_the_finished_dump(stg):
+    """No .part and no .err may survive a good run either."""
+    assert stg.run("migrate", SHA_A).returncode == 0
+    left = sorted(p.name.split("-", 1)[1] for p in (stg.app / "backups").glob("*"))
+    assert left == [f"{SHA_A}.dump"]
 
 
 def test_image_whose_embedded_sha_differs_is_rejected(stg):

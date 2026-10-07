@@ -249,12 +249,22 @@ def test_dump_toc_counter_matches_a_real_pg_dump(pg, tmp_path):
     assert " TABLE DATA " in toc, "real TOC should contain the entries that fooled the counter"
 
     remote = (Path(__file__).resolve().parents[2] / "scripts/staging/vps/remote.sh").read_text()
-    program = re.search(r"awk '(\$4 == \"TABLE\".*?)'", remote, re.S)
-    assert program, "could not find the TOC counter in remote.sh"
-    counted = subprocess.run(
-        ["awk", program.group(1)], input=toc, capture_output=True, text=True, check=True, timeout=60
-    ).stdout.strip()
-    assert int(counted) == expected
+
+    def awk(program: str) -> int:
+        out = subprocess.run(
+            ["awk", program], input=toc, capture_output=True, text=True, check=True, timeout=60
+        )
+        return int(out.stdout.strip())
+
+    # The gate: entry count, which is what BACKUP_INCOMPLETE actually tests.
+    gate = re.search(r"awk '(NF && \$0 !~ .*?)'", remote, re.S)
+    assert gate, "could not find the TOC entry counter in remote.sh"
+    assert awk(gate.group(1)) > expected  # tables, their data, constraints, indexes...
+
+    # The operator-facing table count.
+    counter = re.search(r"awk '(\$4 == \"TABLE\".*?)'", remote, re.S)
+    assert counter, "could not find the TOC table counter in remote.sh"
+    assert awk(counter.group(1)) == expected
 
     # And a truncated archive must be rejected, not silently counted as zero tables.
     broken = tmp_path / "broken.dump"
