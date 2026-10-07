@@ -22,6 +22,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 PINNED = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*==\s*([^\s;\\]+)")
 LOCKS = {"requirements.txt": "requirements.lock", "requirements-dev.txt": "requirements-dev.lock"}
+# Only this dash option may appear in a declared-requirements file. Everything else is
+# rejected by name rather than skipped: "--extra-index-url" points the resolver at another
+# package index (dependency confusion), and "-e ./somewhere" adds a dependency that is in
+# no lock and has no hash. Skipping any line starting with "-" let both through silently.
+ALLOWED_OPTIONS = ("-r ", "--requirement ")
 
 
 def normalise(name: str) -> str:
@@ -32,7 +37,14 @@ def declared(path: Path) -> dict[str, str]:
     out = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if not line or line.startswith(("#", "-")):
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("-"):
+            assert line.startswith(ALLOWED_OPTIONS), (
+                f"{path.name}: '{line}' is a pip option this guard refuses to let past. "
+                "Only -r/--requirement is allowed here; an extra index or an editable "
+                "install would bring in code that no lock covers."
+            )
             continue
         match = PINNED.match(line)
         assert match, f"{path.name}: '{line}' is not pinned with == , so the lock cannot be trusted"
@@ -62,14 +74,14 @@ def test_every_declared_dependency_is_in_the_lock_at_the_same_version(source, lo
     assert not drifted, f"{source} and {lock} disagree on versions: {drifted}"
 
 
-@pytest.mark.parametrize("lock", sorted(set(LOCKS.values())))
+@pytest.mark.parametrize(
+    "lock", ["requirements.lock", "requirements-dev.lock", "requirements-lint.lock"]
+)
 def test_every_locked_package_carries_hashes(lock):
     """A lock entry without hashes installs whatever the index serves that day."""
     text = (ROOT / lock).read_text(encoding="utf-8")
     entries = [b for b in re.split(r"\n(?=[A-Za-z0-9])", text) if PINNED.match(b.strip())]
-    assert len(entries) > len(declared(ROOT / "requirements.txt")), (
-        f"{lock} should pin transitive packages too, not only the declared ones"
-    )
+    assert entries, f"{lock} parsed empty — this check would pass vacuously"
     unhashed = [b.split("\n", 1)[0] for b in entries if "--hash=sha256:" not in b]
     assert not unhashed, f"{lock}: no hashes for {unhashed}"
 
@@ -92,9 +104,31 @@ def test_the_base_image_is_pinned_by_digest():
         assert re.search(r"@sha256:[0-9a-f]{64}", line), f"not pinned by digest: {line}"
 
 
-def test_ci_installs_from_the_locks():
-    for workflow in ("ci", "staging"):
-        text = (ROOT / ".github" / "workflows" / f"{workflow}.yml").read_text(encoding="utf-8")
-        assert not re.search(r"pip install -r requirements(-dev)?\.txt", text), (
-            f"{workflow}.yml still installs from a file without hashes"
-        )
+# Any pip install in a workflow, however it is written.
+PIP_INSTALL = re.compile(r"pip\s+install\b[^\n]*")
+
+
+@pytest.mark.parametrize("workflow", ["ci", "staging"])
+def test_every_workflow_pip_install_verifies_hashes(workflow):
+    """Not "does it name the lock file" -- does it actually enforce the hashes.
+
+    The first version of this check only grepped for `pip install -r requirements.txt`,
+    so dropping `--require-hashes` while keeping the .lock filename passed, and so did
+    adding a plain `pip install requests`. It asserted the filename, not the property
+    that matters (CLAUDE.md 12.1 rule 3: a check speaks only inside what it looks at).
+    """
+    text = (ROOT / ".github" / "workflows" / f"{workflow}.yml").read_text(encoding="utf-8")
+    commands = PIP_INSTALL.findall(text)
+    assert commands, f"{workflow}.yml: no pip install found — this check would pass vacuously"
+    unverified = [c.strip() for c in commands if "--require-hashes" not in c]
+    assert not unverified, (
+        f"{workflow}.yml installs without hash verification: {unverified}. "
+        "Add the package to a .lock and install with --require-hashes."
+    )
+
+
+@pytest.mark.parametrize(
+    "lock", ["requirements.lock", "requirements-dev.lock", "requirements-lint.lock"]
+)
+def test_each_lock_exists_and_is_hashed(lock):
+    assert (ROOT / lock).is_file(), f"{lock} is referenced by a workflow or the image"

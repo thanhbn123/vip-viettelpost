@@ -100,7 +100,7 @@ alembic -c migrations/alembic.ini current
 
 ## 8. Smoke test
 
-Chạy từ bản checkout repo (ảnh Docker không chứa `scripts/`) sau `pip install -r requirements-dev.txt`. Nhập key không để lại lịch sử shell:
+Chạy từ bản checkout repo (ảnh Docker không chứa `scripts/`) sau `pip install --require-hashes -r requirements-dev.lock`. Nhập key không để lại lịch sử shell:
 
 ```bash
 export SMOKE_BASE_URL=https://<staging-host>
