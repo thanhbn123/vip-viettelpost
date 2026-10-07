@@ -59,7 +59,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements-dev.txt
+      - run: pip install --require-hashes -r requirements-dev.lock
       - run: ruff check app tests migrations scripts
       - run: pytest -q
       - name: Single migration head
@@ -167,7 +167,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt
+      - run: pip install --require-hashes -r requirements.lock
       - name: Scenario
         env:
           SCENARIO: ${{ vars.VTP_E2E_SCENARIO_JSON }}
@@ -210,7 +210,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements-dev.txt
+      - run: pip install --require-hashes -r requirements-dev.lock
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: image-${{ env.SHA }}
