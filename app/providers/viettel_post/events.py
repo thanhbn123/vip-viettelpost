@@ -5,7 +5,6 @@ produce the same event for the same payload.
 """
 
 from datetime import datetime, tzinfo
-
 from zoneinfo import ZoneInfo
 
 from app.domain.models.common import ShippingProviderCode
