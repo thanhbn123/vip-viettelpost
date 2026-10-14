@@ -6,12 +6,13 @@ bumps a version in requirements.txt, nobody regenerates the lock, and from then 
 declared file and the installed set are two different things — while every build stays
 green, because the lock still resolves. These checks are cheap and they fail loudly.
 
-Regenerate both locks with:
+Regenerate every lock with:
 
-    uv pip compile requirements.txt     --universal --generate-hashes \\
-        --python-version 3.11 -o requirements.lock
-    uv pip compile requirements-dev.txt --universal --generate-hashes \\
-        --python-version 3.11 -o requirements-dev.lock
+    bash scripts/update-locks.sh
+
+Dependabot edits requirements*.txt and knows nothing about the locks, so its pull
+requests land with the locks stale and this test red. That is this test working. Somebody
+still has to run the script on the Dependabot branch and push before the PR can go green.
 """
 
 import re
