@@ -3,7 +3,7 @@
 # reviewed. The digest is an OCI image index covering 8 platforms, so arm64 and amd64 both
 # still resolve. Dependabot (.github/dependabot.yml, docker ecosystem) proposes the bumps;
 # a pin nobody updates is its own problem.
-FROM python:3.11-slim@sha256:0dd364ba7e10242f07755449e3a3d0e35f9efd987952737b90def6709ab0c5ce
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
 
 ARG GIT_SHA=unknown
 ENV PYTHONDONTWRITEBYTECODE=1 \
